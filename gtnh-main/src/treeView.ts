@@ -491,6 +491,17 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
                 continue;
             }
             
+            // Skip molds, raw stellar plasma mixture, and planets
+            if (goods.name && (
+                goods.name.includes("Mold") ||
+                goods.name.includes("Shape") ||
+                goods.name.includes("Raw Stellar Plasma Mixture") ||
+                goods.name.includes("Condensed Raw Stellar Plasma Mixture") ||
+                goods.name.includes("Planet")
+            )) {
+                continue;
+            }
+            
             // For ore dictionary, check memory or use first variant
             if (item.type === RecipeIoType.OreDictInput && goods instanceof OreDict) {
                 oreDictSource = goods; // Store the original ore dict
@@ -578,6 +589,17 @@ function buildNodeChildren(node: TreeNodeData) {
             let goods = item.goods as Goods;
             
             if (goods.name && goods.name.includes("Programmed Circuit")) {
+                continue;
+            }
+            
+            // Skip molds, raw stellar plasma mixture, and planets
+            if (goods.name && (
+                goods.name.includes("Mold") ||
+                goods.name.includes("Shape") ||
+                goods.name.includes("Raw Stellar Plasma Mixture") ||
+                goods.name.includes("Condensed Raw Stellar Plasma Mixture") ||
+                goods.name.includes("Planet")
+            )) {
                 continue;
             }
             
@@ -791,7 +813,11 @@ function renderNode(node: TreeNodeData, depth: number): string {
 }
 
 export function ExportTreeData(): any {
-    return serializeNode(treeRoot);
+    return {
+        tree: serializeNode(treeRoot),
+        recipeMemory: Array.from(recipeMemory.entries()),
+        oreDictMemory: Array.from(oreDictMemory.entries())
+    };
 }
 
 function serializeNode(node: TreeNodeData | null): any {
@@ -811,7 +837,25 @@ export function ImportTreeData(data: any) {
     if (!data) return;
     
     nextTreeIid = 0;
-    treeRoot = deserializeNode(data);
+    
+    // Import recipe and ore dict memory if present
+    if (data.recipeMemory && Array.isArray(data.recipeMemory)) {
+        recipeMemory.clear();
+        data.recipeMemory.forEach(([goodsId, recipeId]: [string, string]) => {
+            recipeMemory.set(goodsId, recipeId);
+        });
+    }
+    
+    if (data.oreDictMemory && Array.isArray(data.oreDictMemory)) {
+        oreDictMemory.clear();
+        data.oreDictMemory.forEach(([oreDictId, goodsId]: [string, string]) => {
+            oreDictMemory.set(oreDictId, goodsId);
+        });
+    }
+    
+    // Import tree structure - handle both old and new format
+    const treeData = data.tree || data;
+    treeRoot = deserializeNode(treeData);
     renderTree();
 }
 
