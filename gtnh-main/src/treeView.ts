@@ -514,7 +514,8 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
                             goods = rememberedGoods;
                         } else {
                             goods = goods.items[0];
-                        }\n                    } else {
+                        }
+                    } else {
                         goods = goods.items[0]; // Use first item by default
                     }
                 }
