@@ -1,0 +1,84 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Create dist directory
+        run: mkdir -p dist
+
+      - name: Run tests
+        run: npm test -- --ci
+      
+      - name: Build TypeScript
+        run: npm run build
+        
+      # Add these new steps
+      - name: Create .nojekyll
+        run: touch dist/.nojekyll
+        
+      - name: Create _config.yml
+        run: |
+          echo "include:" > dist/_config.yml
+          echo "  - '*.js'" >> dist/_config.yml
+        
+      - name: List dist contents
+        run: |
+          echo "Root dist directory:"
+          ls -la dist/
+          echo "Data directory:"
+          ls -la dist/data/
+      
+      - name: Verify data.bin
+        run: |
+          if [ ! -f dist/data/data.bin ]; then
+            echo "Error: data.bin is missing!"
+            exit 1
+          fi
+      
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

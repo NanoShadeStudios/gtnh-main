@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GTNH Calculator</title>
+    <link rel="stylesheet" href="assets/styles/general.css">
+    <link rel="stylesheet" href="assets/styles/nei.css">
+    <link rel="stylesheet" href="assets/styles/tabs.css">
+    <link rel="stylesheet" href="assets/styles/tooltip.css">
+    <link rel="stylesheet" href="assets/styles/recipe-list.css">
+    <link rel="stylesheet" href="assets/styles/menu.css">
+    <link rel="stylesheet" href="assets/styles/format.css">
+    <link rel="stylesheet" href="assets/styles/tree-view.css">
+    <link rel="icon" href="assets/images/favicon.png" type="image/png">
+    <style id="item-icon-highlight-style"></style>
+    <style id="item-icon-search-style"></style>
+</head>
+<body>
+    <script src="https://unpkg.com/javascript-lp-solver@0.4.24/prod/solver.js"></script>
+    <script type="module" src="index.js"></script>
+    <script src="assets/js/search.js"></script>
+
+    <button class="menu-toggle">☰</button>
+
+    <div id="main">
+        <div id="menu" class="menu-container visible">
+            <div class="menu-header">Greg Tech: New Horizons Calculator</div>
+            <span class="text-small">For GTNH version 2.8.0 (<a href="https://shadowtheage.github.io/gtnh-2.7.4/" target="_blank">2.7.4</a>).</span>
+            <div class="menu-links">
+                <a href="#" id="nei-link">NEI</a>•
+                <a href="https://github.com/ShadowTheAge/gtnh/" target="_blank">Github</a>•
+                <a href="https://gtnh.miraheze.org/" target="_blank">Wiki</a>•
+                <a href="https://docs.google.com/spreadsheets/d/1EIZtJU5eBbnUlrg7fD_ZyIzsr9sn4l4no9ek6M_iSVM" target="_blank">Spreadsheet</a>
+            </div>
+            <div class="menu-mode-selector">
+                <button id="mode-recipe-list" class="mode-btn active" data-mode="recipe-list">Recipe List</button>
+                <button id="mode-tree-view" class="mode-btn" data-mode="tree-view">Tree View</button>
+            </div>
+            <div class="menu-pages">
+                <div class="header"><h2 style="display: inline;">Pages</h2> (<a href="#" id="load-file">Load from file</a>)</div>
+                <div class="page-list">
+                    <!-- Page buttons will be inserted here -->
+                </div>
+            </div>
+            <span class="text-small">Pages are stored in your browser's local storage. This may not be reliable. Please save important pages as files or URLs.</span>
+            <div class="new-page-widget">
+                <h2>New Page</h2>
+                <div class="new-page-form">
+                    <input type="text" data-action="page-name-input" placeholder="Page name">
+                    <button data-action="create-page">Create</button>
+                </div>
+            </div>
+        </div>
+        <div id="recipe-list">
+            <div class="status-message"></div>
+            <div class="header"><h2>Products: <span class="text-small">(You can use negative amounts for input goal)</span></h2></div>
+            <div class="product-items"></div>
+            <div class="header"><h2>Recipes:</h2></div>
+            <div class="recipe-list"></div>
+            <span class="text-small" style="color: #666;">
+                All icons and related materials featured on this website are the property of their respective copyright holders. 
+                This site does not claim ownership of these materials. They are used here for informational and illustrative purposes only. 
+                All trademarks and copyrights belong to their respective owners. 
+                Font used: <a href="https://www.fontspace.com/f77-minecraft-font-f30628">F77 Minecraft by 123467</a>
+            </span>
+        </div>
+        <div id="tree-view" class="hidden">
+            <div class="header">
+                <h2>Tree View</h2>
+                <button id="tree-select-root">Select Root Product</button>
+                <div class="tree-controls">
+                    <button id="tree-zoom-in" title="Zoom In">+</button>
+                    <button id="tree-zoom-reset" title="Reset View">⊙</button>
+                    <button id="tree-zoom-out" title="Zoom Out">-</button>
+                    <button id="tree-fullscreen" title="Toggle Fullscreen">⛶</button>
+                    <button id="tree-import" title="Import Tree">Import</button>
+                    <button id="tree-download" title="Download Tree">Download</button>
+                    <button id="tree-copy-link" title="Copy Share Link">Share</button>
+                </div>
+                <span class="tree-stats"></span>
+            </div>
+            <div id="tree-view-viewport">
+                <div id="tree-view-content"></div>
+            </div>
+        </div>
+        <div class="search-container">
+            <input type="text" id="recipe-search" placeholder="Search...">
+            <button id="recipe-search-close">x</button>
+        </div>
+    </div>
+
+    <div id="panels">
+        <div id="nei" class="hidden panel-tab-container">
+            <div class="panel-tab-bar">
+                <div id="nei-tabs" class="panel-tabs"></div>
+            </div>
+            <div class = "panel">
+                <div class="hgroup">
+                    Search:
+                    <input id="nei-search" placeholder="Start typing for search">
+                    <button id="nei-back">←</button>
+                    <button id="nei-close">x</button>
+                </div>
+                <div class="scroll-area" id="nei-scroll">
+                    <div id="nei-content"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="confirm-dialog" class="hidden panel">
+            <p id="confirm-text" style="text-align: left; flex-grow: 1; max-width: 550px; white-space: pre-line;"></p>
+            <div class="hgroup" style="justify-content: center; gap: 10px;">
+                <button id="confirm-yes">Yes</button>
+                <button id="confirm-no">No</button>
+                <button id="confirm-cancel">Cancel</button>
+            </div>
+        </div>
+
+        <div id="loading" class="panel"><h1>LOADING...</h1>First time loading may take a while.<br>(Downloading 30MB of data)</div>
+    </div>
+
+    <div id="tooltip">
+        <p id="tooltip-header">Header</p>
+        <p id="tooltip-debug">Debug</p>
+        <p id="tooltip-text">Text</p>
+        <p id="tooltip-action">Action</p>
+        <p id="tooltip-mod">Mod</p>
+        <div id="tooltip-recipe"></div>
+    </div>
+
+    <div id="dropdown">
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,564 @@
+/* Tree View Styles */
+#tree-view {
+    padding: 20px;
+    overflow-y: auto;
+    overflow-x: auto;
+    background: #1a1a1a;
+    min-height: 100vh;
+}
+
+#tree-view.tree-view-maximized {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    width: 100vw;
+    height: 100vh;
+    padding: 20px;
+    margin: 0;
+}
+
+#tree-view .header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 10px 20px;
+    border-bottom: 2px solid #333;
+    background: #1a1a1a;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+#tree-view .header h2 {
+    margin: 0;
+    flex-grow: 1;
+}
+
+.tree-controls {
+    display: flex;
+    gap: 5px;
+}
+
+.tree-controls button {
+    padding: 6px 12px;
+    background: #333;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 16px;
+    min-width: 36px;
+}
+
+.tree-controls button:hover {
+    background: #444;
+}
+
+#tree-view-viewport {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 100px);
+    overflow: hidden;
+    cursor: grab;
+    background: #1a1a1a;
+}
+
+#tree-view.fullscreen #tree-view-viewport {
+    height: calc(100vh - 60px);
+}
+
+#tree-view:fullscreen {
+    background: #1a1a1a;
+}
+
+#tree-view:fullscreen #tree-view-viewport {
+    height: calc(100vh - 60px);
+}
+
+#tree-select-root {
+    padding: 8px 16px;
+    background: #2d5016;
+    color: #fff;
+    border: 2px solid #4a7020;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+}
+
+#tree-select-root:hover {
+    background: #3a6520;
+}
+
+.tree-stats {
+    color: #888;
+    font-size: 14px;
+}
+
+#tree-view-content {
+    font-family: inherit;
+    transform-origin: 0 0;
+    transition: transform 0.1s ease-out;
+    position: absolute;
+    user-select: none;
+}
+
+.tree-empty-state {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+    font-size: 16px;
+}
+
+.tree-root {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    transform: translate(-50%, -50%);
+    min-width: max-content;
+}
+
+.tree-node-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 10px;
+    position: relative;
+}
+
+.tree-recipe-card {
+    background: #2a2a2a;
+    border: 2px solid #444;
+    border-radius: 8px;
+    padding: 12px;
+    min-width: 300px;
+}
+
+.tree-card-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 8px;
+}
+
+.tree-card-inputs,
+.tree-card-outputs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tree-card-io {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: #1a1a1a;
+    border-radius: 4px;
+}
+
+.tree-card-arrow {
+    font-size: 24px;
+    color: #888;
+    font-weight: bold;
+    margin: 0 10px;
+}
+
+.tree-card-recipe-display {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 12px 8px;
+    justify-content: center;
+}
+
+.tree-recipe-inputs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 8px;
+    background: #1a1a1a;
+    border-radius: 4px;
+    border: 1px solid #333;
+}
+
+.tree-recipe-output {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tree-recipe-slot {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    background: #252525;
+    border: 1px solid #444;
+    border-radius: 4px;
+    min-width: 40px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tree-recipe-slot:hover {
+    background: #2a2a2a;
+    border-color: #4a7020;
+    transform: scale(1.05);
+}
+
+.tree-slot-has-recipe {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    color: #4a7020;
+    font-size: 10px;
+    font-weight: bold;
+    background: #1a1a1a;
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #4a7020;
+}
+
+.tree-slot-ore-dict {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    color: #9370db;
+    font-size: 10px;
+    background: #1a1a1a;
+    border-radius: 3px;
+    padding: 1px 3px;
+    border: 1px solid #9370db;
+}
+
+.tree-recipe-slot.has-ore-dict {
+    border-color: #9370db;
+}
+
+.tree-slot-amount {
+    color: #fff;
+    font-size: 11px;
+    text-align: center;
+    text-shadow: 1px 1px 2px #000;
+}
+
+.tree-slot-amount-input {
+    width: 60px;
+    padding: 2px 4px;
+    background: #1a1a1a;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 11px;
+    text-align: center;
+}
+
+.tree-slot-amount-input:focus {
+    outline: none;
+    border-color: #4a7020;
+}
+
+.tree-card-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 8px;
+}
+
+.tree-io-amount {
+    color: #aaa;
+    font-size: 12px;
+    min-width: 40px;
+}
+
+.tree-io-amount-input {
+    width: 70px;
+    padding: 2px 6px;
+    background: #1a1a1a;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 12px;
+    text-align: right;
+}
+
+.tree-io-amount-input:focus {
+    outline: none;
+    border-color: #4a7020;
+}
+
+.tree-no-recipe-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+}
+
+.tree-item-name {
+    color: #fff;
+    font-size: 14px;
+}
+
+.tree-expand-toggle {
+    width: 100%;
+    padding: 6px;
+    margin-top: 8px;
+    background: #333;
+    color: #aaa;
+    border: 1px solid #444;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+}
+
+.tree-expand-toggle:hover {
+    background: #3a3a3a;
+    color: #fff
+}
+
+.tree-card-close {
+    padding: 2px 6px;
+    background: #5a2020;
+    color: #fff;
+    border: 1px solid #7a3020;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.tree-card-close:hover {
+    background: #7a3030;
+}
+
+.tree-expand-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tree-expand-btn:hover {
+    color: #fff;
+}
+
+.tree-expand-spacer {
+    width: 24px;
+    height: 24px;
+    display: inline-block;
+}
+
+.tree-node-name {
+    color: #fff;
+    font-size: 14px;
+    min-width: 200px;
+}
+
+.tree-node-amount {
+    color: #aaa;
+    font-size: 13px;
+    min-width: 80px;
+    text-align: right;
+}
+
+.tree-node-amount-input {
+    width: 100px;
+    padding: 4px 8px;
+    background: #1a1a1a;
+    color: #fff;
+}
+
+.tree-children-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 10px;
+    width: max-content;
+    min-width: 100%;
+}
+
+.tree-connector {
+    width: 2px;
+    height: 30px;
+    background: linear-gradient(to bottom, #666, transparent);
+    margin-bottom: -5px;
+}
+
+.tree-children-row {
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+    justify-content: center;
+    align-items: flex-start;
+    position: relative;
+    padding-top: 20px;
+}
+
+.tree-children-row.single-child {
+    justify-content: center;
+}
+
+.tree-children-row.multiple-children {
+    justify-content: center;
+}
+
+.tree-children-row.single-child::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 2px;
+    background: #666;
+}
+
+.tree-children-row.multiple-children::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #666;
+}
+
+.tree-children-row > .tree-node-wrapper {
+    flex-shrink: 0;
+}
+
+.tree-children-row.single-child > .tree-node-wrapper::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 20px;
+    background: #666;
+}
+
+.tree-children-row.multiple-children > .tree-node-wrapper::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 20px;
+    background: #666;
+}
+
+.tree-voltage-btn {
+    padding: 4px 12px;
+    background: #1a3a5a;
+    color: #fff;
+    border: 1px solid #2a5a8a;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    min-width: 50px;
+}
+
+.tree-voltage-btn:hover {
+    background: #2a4a6a;
+}
+
+.tree-btn {
+    padding: 4px 12px;
+    background: #333;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+}
+
+.tree-btn:hover {
+    background: #444;
+}
+
+.tree-btn-select {
+    background: #2d5016;
+    border-color: #4a7020;
+}
+
+.tree-btn-select:hover {
+    background: #3a6520;
+}
+
+.tree-node-children {
+    position: relative;
+}
+
+/* Tree connecting lines */
+.tree-node-children::before {
+    content: '';
+    position: absolute;
+    left: 12px;
+    top: 0;
+    bottom: 20px;
+    width: 1px;
+    background: #444;
+}
+
+/* Mode selector styles */
+.menu-mode-selector {
+    display: flex;
+    gap: 10px;
+    margin: 15px 0;
+    padding: 10px 0;
+    border-top: 1px solid #333;
+    border-bottom: 1px solid #333;
+}
+
+.mode-btn {
+    flex: 1;
+    padding: 10px;
+    background: #252525;
+    color: #888;
+    border: 2px solid #333;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.mode-btn:hover {
+    background: #2a2a2a;
+    color: #aaa;
+}
+
+.mode-btn.active {
+    background: #2d5016;
+    color: #fff;
+    border-color: #4a7020;
+}
+
+/* Hide inactive views */
+#recipe-list.hidden,
+#tree-view.hidden {
+    display: none;
+}
