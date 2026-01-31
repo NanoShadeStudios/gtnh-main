@@ -267,11 +267,12 @@ export class Fluid extends Goods
 
 export class OreDict extends RecipeObject
 {
+    get name(): string {return this.GetString(5);}
     items:Item[];
 
     constructor(repository:Repository, offset:number) {
         super(repository, offset);
-        this.items = this.GetArray(5, Item);
+        this.items = this.GetArray(6, Item);
     }
 
     MatchSearchText(query: SearchQuery): boolean
