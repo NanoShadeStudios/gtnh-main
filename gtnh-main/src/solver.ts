@@ -344,8 +344,6 @@ export function SolvePage(page:PageModel):void
         
         if (duration > 1000) {
             console.warn(`Solver took ${duration.toFixed(0)}ms - this is slow. Consider simplifying your recipe chain.`);
-        } else {
-            console.log(`Solver completed in ${duration.toFixed(0)}ms`);
         }
     } catch (error) {
         console.error("Error solving page",error);

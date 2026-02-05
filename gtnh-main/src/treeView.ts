@@ -84,6 +84,30 @@ function isFullySatisfied(node: TreeNodeData): boolean {
     return node.children.every(child => isFullySatisfied(child));
 }
 
+function clearRecipeMemory() {
+    if (recipeMemory.size === 0 && oreDictMemory.size === 0) {
+        alert("No saved recipe choices to clear.");
+        return;
+    }
+    
+    const recipeCount = recipeMemory.size;
+    const oreDictCount = oreDictMemory.size;
+    
+    if (confirm(`Clear ${recipeCount} saved recipe choice(s) and ${oreDictCount} ore dict selection(s)?`)) {
+        recipeMemory.clear();
+        oreDictMemory.clear();
+        
+        // Rebuild tree if one exists
+        if (treeRoot && treeRoot.goods instanceof Goods) {
+            const rootGoods = treeRoot.goods;
+            const rootAmount = treeRoot.amount;
+            SetTreeRoot(rootGoods, rootAmount);
+        }
+        
+        alert("Recipe memory cleared!");
+    }
+}
+
 function downloadTree() {
     if (!treeRoot) {
         alert("No tree to download. Please select a root product first.");
@@ -243,19 +267,14 @@ function setupPanZoom() {
         treeView.classList.toggle("tree-view-maximized");
     });
     
+    // Clear recipe memory
+    document.getElementById("tree-clear-memory")?.addEventListener("click", () => {
+        clearRecipeMemory();
+    });
+    
     // Import tree
     document.getElementById("tree-import")?.addEventListener("click", () => {
         importTree();
-    });
-    
-    // Download tree
-    document.getElementById("tree-download")?.addEventListener("click", () => {
-        downloadTree();
-    });
-    
-    // Copy share link
-    document.getElementById("tree-copy-link")?.addEventListener("click", () => {
-        copyShareLink();
     });
     
     // Download tree
@@ -542,23 +561,18 @@ function applyRecipeToAllMatchingNodes(goodsId: string, recipe: Recipe) {
 }
 
 function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
-    console.log("setNodeRecipe START for recipe:", recipe.id);
     node.recipe = recipe;
     node.satisfied = true;
     node.expanded = true;
     
-    console.log("Storing recipe in memory...");
     // Remember this recipe choice for this goods
     recipeMemory.set(node.goods.id, recipe.id);
     
-    console.log("Building children from recipe inputs...");
     // Build children from recipe inputs first
     node.children = [];
     
-    console.log("Accessing recipe.items...");
     // Calculate output amount - works for both GT and non-GT recipes
     const outputItems = recipe.items.filter(item => item.type === RecipeIoType.ItemOutput || item.type === RecipeIoType.FluidOutput);
-    console.log("Found", outputItems.length, "output items, loading goods for them...");
     let outputAmount = 1;
     for (const item of outputItems) {
         ensureGoodsLoaded(item);
@@ -567,14 +581,12 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
             break;
         }
     }
-    console.log("Output amount:", outputAmount);
     
     const recipesNeeded = node.amount / outputAmount;
     
     // Group inputs by goods ID to combine duplicates
     const inputMap = new Map<string, { goods: Goods, amount: number, oreDictSource?: OreDict }>();
     
-    console.log("Processing", recipe.items.length, "recipe items...");
     // Add all inputs as children (excluding programmed circuits)
     for (const item of recipe.items) {
         // For Eye of Harmony recipes, skip all ItemInput (planets)
@@ -672,8 +684,6 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
         
         node.children.push(childNode);
     }
-    
-    console.log('✓ Created', node.children.length, 'children for:', node.goods.name);
     
     // Use deferred rendering to avoid blocking the UI
     scheduleRender();
@@ -933,7 +943,6 @@ function renderNode(node: TreeNodeData, depth: number): string {
     if (node.expanded && hasChildren) {
         const isSingleChild = node.children.length === 1;
         const cssClass = isSingleChild ? 'single-child' : 'multiple-children';
-        console.log('→ Rendering', node.children.length, 'children with CSS class:', cssClass);
         html += `<div class="tree-children-container">`;
         html += `<div class="tree-connector"></div>`;
         html += `<div class="tree-children-row ${cssClass}">`;

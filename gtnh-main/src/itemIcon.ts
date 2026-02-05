@@ -167,4 +167,3 @@ export class IconBox extends HTMLElement
 }
 
 customElements.define("item-icon", IconBox);
-console.log("Registered custom element: item-icon");

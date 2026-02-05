@@ -373,10 +373,8 @@ export class Recipe extends SearchableObject
 
     private ComputeItems():RecipeInOut[]
     {
-        console.log("ComputeItems START");
         var slice = this.GetSlice(5);
         var elements = slice.length / 5;
-        console.log("ComputeItems: parsing", elements, "items");
         var result:RecipeInOut[] = new Array(elements);
         var index = 0;
         for(var i=0; i<elements; i++) {
@@ -391,7 +389,6 @@ export class Recipe extends SearchableObject
                 probability: slice[index++] / 100,
             }
         }
-        console.log("ComputeItems END");
         return result;
     }
 

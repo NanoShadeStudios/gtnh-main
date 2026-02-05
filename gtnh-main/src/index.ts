@@ -12,7 +12,6 @@ try {
     const stream = response.body!.pipeThrough(new DecompressionStream("gzip"));
     const buffer = await new Response(stream).arrayBuffer();
     repositoryModule.Repository.load(buffer);
-    console.log("Repository loaded", repositoryModule.Repository.current);
 
     // Then load other modules
     await Promise.all([

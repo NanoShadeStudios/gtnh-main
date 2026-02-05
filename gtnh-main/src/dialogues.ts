@@ -4,7 +4,6 @@ export function showConfirmDialog(
     option2Text: string | null = "No",
     cancelText: string | null = null
 ): Promise<"option1" | "option2" | "cancel"> {
-    console.log("showConfirmDialog", text, option1Text, option2Text, cancelText);
     return new Promise((resolve) => {
         const dialog = document.getElementById('confirm-dialog');
         const textElement = document.getElementById('confirm-text');

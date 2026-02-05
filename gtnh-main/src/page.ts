@@ -463,7 +463,6 @@ export function DragAndDrop(sourceIid:number, targetIid:number)
         return;
     if (draggingObject.current instanceof RecipeGroupModel && !draggingObject.current.collapsed)
         return;
-    console.log("DragAndDrop", draggingObject, targetObject);
     let success = false;
 
     if (targetObject.current instanceof RecipeGroupModel && !targetObject.current.collapsed) {
@@ -519,7 +518,6 @@ function notifyListeners() {
 }
 
 export function SetCurrentPage(newPage: PageModel) {
-    console.log("SetCurrentPage", newPage);
     page = newPage;
     // Use immediate update for page load (no debounce)
     UpdateProject(false, true);

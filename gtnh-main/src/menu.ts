@@ -119,6 +119,11 @@ export class PageManager {
             this.createNewPage(name);
             input.value = '';
         });
+
+        document.getElementById('delete-all-pages')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.deleteAllPages();
+        });
     }
 
     private loadPagesFromStorage() {
@@ -126,7 +131,6 @@ export class PageManager {
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i)!;
             if (key.startsWith('p:')) {
-                console.log("Found page", key);
                 this.pages.push(key.substring(2));
             }
         }
@@ -265,7 +269,6 @@ export class PageManager {
             writer.close();
             const decompressed = await new Response(decompressedStream.readable).arrayBuffer();
             const json = new TextDecoder().decode(decompressed);
-            console.log("Loaded page", json);
             const importedPage = new PageModel(JSON.parse(json));
             await ValidateAndNotify(importedPage);
             window.location.hash = "";
@@ -418,6 +421,33 @@ export class PageManager {
                     this.createNewPage('New');
                 }
                 this.render();
+            }
+        });
+    }
+
+    private deleteAllPages() {
+        const pageCount = this.pages.length;
+        if (pageCount === 0) {
+            return;
+        }
+
+        showConfirmDialog(
+            `You are about to delete ALL ${pageCount} page(s). This action cannot be undone. Are you sure you want to continue?`,
+            `Delete All Pages`,
+            null,
+            `Cancel`
+        ).then(action => {
+            if (action === "option1") {
+                // Remove all pages from storage
+                this.pages.forEach(pageName => {
+                    localStorage.removeItem(`p:${pageName}`);
+                });
+                // Clear cache
+                this.pageCache.clear();
+                // Clear pages list
+                this.pages = [];
+                // Create a fresh new page
+                this.createNewPage('New');
             }
         });
     }
