@@ -1,8 +1,19 @@
 import { Model, Solution } from "./types/javascript-lp-solver.js";
 import { PageModel, RecipeGroupModel, RecipeModel, ProductModel, FlowInformation, LinkAlgorithm, OverclockResult } from './page.js';
-import { Goods, Item, OreDict, Recipe, RecipeIoType, RecipeObject, Repository } from "./repository.js";
+import { Goods, Item, OreDict, Recipe, RecipeIoType, RecipeObject, Repository, Fluid, RecipeInOut } from "./repository.js";
 import { singleBlockMachine, machines, notImplementedMachine, GetSingleBlockMachine, GetParameter } from "./machines.js";
 import { voltageTier } from "./utils.js";
+
+const repository = Repository.current;
+const RecipeIoTypePrototypes = [Item, OreDict, Fluid, Item, Fluid];
+
+// Helper to lazily load goods object for a RecipeInOut
+function ensureGoodsLoaded(item: RecipeInOut): void {
+    if (!item.goods) {
+        const proto = RecipeIoTypePrototypes[item.type];
+        item.goods = repository.GetObject(item.goodsPtr, proto);
+    }
+}
 
 class LinkCollection {
     output: {[key:string]:{[key:string]:number}} = {};
@@ -152,6 +163,7 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
     recipeModel.recipeItems = recipeItems;
 
     for (const slot of recipeItems) {
+        ensureGoodsLoaded(slot);
         const goods = slot.goods;
         let amount = slot.amount * slot.probability;
         let container = goods instanceof Item && goods.container;
@@ -188,7 +200,9 @@ function CreateAndMatchLinks(group:RecipeGroupModel, model:Model, collection:Lin
         }
     }
 
-    console.log("Raw collection",collection);
+    // Only log during development or for debugging performance issues
+    // Reduce console spam which can cause performance issues
+    // console.log("Raw collection",collection);
 
     let matchedOutputs: {[key:string]:boolean} = {};
     group.actualLinks = {...group.links};
@@ -288,6 +302,8 @@ function ApplySolutionGroup(group:RecipeGroupModel, solution:Solution, model:Mod
 
 export function SolvePage(page:PageModel):void
 {
+    const startTime = performance.now();
+    
     try {
         let model:Model = {
             optimize: "obj",
@@ -307,12 +323,30 @@ export function SolvePage(page:PageModel):void
             }
         }
         CreateAndMatchLinks(page.rootGroup, model, collection);
-        console.log("Solve model",model);
+        
+        // Only log in development or when debugging
+        if (false) {
+            console.log("Solve model", model);
+        }
 
         let solution = window.solver.Solve(model);
-        console.log("Solve solution",solution);
+        
+        // Only log in development or when debugging
+        if (false) {
+            console.log("Solve solution", solution);
+        }
+        
         page.status = solution.feasible ? solution.bounded ? "solved" : "unbounded" : "infeasible";
         ApplySolutionGroup(page.rootGroup, solution, model, solution.feasible);
+        
+        const endTime = performance.now();
+        const duration = endTime - startTime;
+        
+        if (duration > 1000) {
+            console.warn(`Solver took ${duration.toFixed(0)}ms - this is slow. Consider simplifying your recipe chain.`);
+        } else {
+            console.log(`Solver completed in ${duration.toFixed(0)}ms`);
+        }
     } catch (error) {
         console.error("Error solving page",error);
     }

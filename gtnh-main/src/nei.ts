@@ -109,6 +109,9 @@ class NeiRecipeTypeInfo extends Array implements NeiRowAllocator<Recipe>
 
     BuildRecipeItemGrid(dom:string[], items:RecipeInOut[], index:number, type:RecipeIoType, dimensionOffset:number):number
     {
+        const startTime = performance.now();
+        const maxTime = 100; // Maximum 100ms per grid
+        
         var dimX = this.dimensions[dimensionOffset];
         if (dimX == 0)
             return index;
@@ -117,13 +120,49 @@ class NeiRecipeTypeInfo extends Array implements NeiRowAllocator<Recipe>
         const gridWidth = dimX * 36;
         const gridHeight = dimY * 36;
         dom.push(`<div class="icon-grid" style="--grid-pixel-width:${gridWidth}px; --grid-pixel-height:${gridHeight}px">`);
-        for (;index<items.length;index++) {
+        
+        let startIndex = index;
+        let itemsAdded = 0;
+        
+        while (index < items.length) {
+            // Absolute timeout check
+            if (performance.now() - startTime > maxTime) {
+                console.error("BuildRecipeItemGrid timeout after", performance.now() - startTime, "ms at index", index);
+                break;
+            }
+            
             var item = items[index];
+            
+            // Move past this type completely
             if (item.type > type)
                 break;
+            
+            // Move to next item
+            index++;
+            
+            // Skip items that don't fit in this grid
             if (item.slot >= count)
                 continue;
+            
+            // This item fits, render it
+            // Lazily create a minimal goods object if not already created
+            // We avoid calling GetObject for OreDict because its constructor loads all items
             var goods = item.goods;
+            if (!goods) {
+                if (item.type === RecipeIoType.OreDictInput) {
+                    // Create minimal OreDict-like object without calling constructor
+                    const objectOffset = item.goodsPtr;
+                    const elements = repository.elements;
+                    const idPtr = elements[objectOffset / 4 + 3]; // id is at offset 3
+                    const id = repository.GetString(idPtr);
+                    goods = item.goods = { id, objectOffset, repository } as any;
+                } else {
+                    // For Item and Fluid, GetObject is safe
+                    let proto = (item.type === RecipeIoType.ItemInput || item.type === RecipeIoType.ItemOutput) ? Item : Fluid;
+                    goods = item.goods = repository.GetObject(item.goodsPtr, proto);
+                }
+            }
+            
             const gridX = (item.slot % dimX) * 36 + 2;
             const gridY = Math.floor(item.slot / dimX) * 36 + 2;
             var iconAttrs = `class="item-icon-grid" style="--grid-x:${gridX}px; --grid-y:${gridY}px" data-id="${goods.id}"`;
@@ -137,7 +176,9 @@ class NeiRecipeTypeInfo extends Array implements NeiRowAllocator<Recipe>
             if (item.probability < 1 && (type == RecipeIoType.ItemOutput || type == RecipeIoType.FluidOutput))
                 dom.push(`<span class="probability">${Math.round(item.probability*100)}%</span>`);
             dom.push(`</item-icon>`);
+            itemsAdded++;
         }
+        
         dom.push(`</div>`);
         return index;
     }
@@ -174,38 +215,107 @@ class NeiRecipeTypeInfo extends Array implements NeiRowAllocator<Recipe>
 
     BuildRowDom(elements:Recipe[], elementWidth:number, elementHeight:number, rowY:number, overrideIo?:RecipeInOut[]):string
     {
+        console.log("      BuildRowDom START: elements =", elements.length);
         let dom:string[] = [];
         const canSelectRecipe = showNeiCallback?.onSelectRecipe != null;
         
         for (let i=0; i<elements.length; i++) {
-            let recipe = elements[i];
-            let recipeItems = overrideIo ? overrideIo : recipe.items;
-            dom.push(`<div class="nei-recipe-box" style="left:${Math.round(i * elementWidth * elementSize)}px; top:${rowY*elementSize}px; width:${Math.round(elementWidth*elementSize)}px; height:${elementHeight*elementSize}px">`);
-            dom.push(`<div class="nei-recipe-io">`);
-            let index = this.BuildRecipeIoDom(dom, recipeItems, 0, RecipeIoType.OreDictInput, RecipeIoType.FluidInput, 0);
-            dom.push(`<div class="arrow-container">`);
-            dom.push(`<div class="arrow"></div>`);
-            if (canSelectRecipe) {
-                dom.push(`<button class="select-recipe-btn" data-recipe="${recipe.objectOffset}">+</button>`);
-            }
-            dom.push(`</div>`);
-            this.BuildRecipeIoDom(dom, recipeItems, index, RecipeIoType.ItemOutput, RecipeIoType.FluidOutput, 4);
-            dom.push(`</div>`);
-            if (recipe.gtRecipe != null) {
-                dom.push(`<span>${voltageTier[recipe.gtRecipe.voltageTier].name} • ${recipe.gtRecipe.durationSeconds}s`);
-                if (recipe.gtRecipe.amperage != 1)
-                    dom.push(` • ${recipe.gtRecipe.amperage}A`);
-                dom.push(`</span><span class="text-small">${formatAmount(recipe.gtRecipe.voltage)}v • ${formatAmount(recipe.gtRecipe.voltage * recipe.gtRecipe.amperage * recipe.gtRecipe.durationTicks)}eu</span>`);
-                for (const metadata of recipe.gtRecipe.metadata) {
-                    let str = MetadataToString(metadata, recipe);
-                    if (str != null) {
-                        dom.push(`<span class="text-small">${str}</span>`);
+            console.log("      Recipe", i, "of", elements.length, "id:", elements[i].id);
+            
+            try {
+                let recipe = elements[i];
+                let recipeItems;
+                
+                if (overrideIo) {
+                    recipeItems = overrideIo;
+                } else {
+                    // Manually parse recipe items with timeout protection instead of using recipe.items
+                    console.log("      Manually parsing recipe data...");
+                    const slice = (recipe as any).GetSlice(5);
+                    const itemCount = slice.length / 5;
+                    
+                    if (itemCount > 500 || itemCount <= 0) {
+                        console.error("Invalid item count:", itemCount);
+                        continue;
                     }
+                    
+                    recipeItems = [];
+                    let sliceIndex = 0;
+                    const startTime = performance.now();
+                    
+                    for (let j = 0; j < itemCount; j++) {
+                        // More frequent timeout check - every item for the first few
+                        if ((j < 5 || j % 5 === 0) && performance.now() - startTime > 100) {
+                            console.error("Timeout while parsing recipe items at item", j);
+                            break;
+                        }
+                        
+                        const type = slice[sliceIndex++];
+                        const ptr = slice[sliceIndex++];
+                        const slot = slice[sliceIndex++];
+                        const amount = slice[sliceIndex++];
+                        const probability = slice[sliceIndex++];
+                        
+                        console.log(`      Parsing item ${j}: type=${type} ptr=${ptr}`);
+                        
+                        // CRITICAL: Don't call GetObject here - it triggers OreDict.GetArray which loops
+                        // We'll create the goods object lazily when rendering
+                        recipeItems.push({
+                            type: type,
+                            goodsPtr: ptr,
+                            goods: null as any, // Will be populated lazily
+                            slot: slot,
+                            amount: amount,
+                            probability: probability / 100
+                        });
+                    }
+                    
+                    console.log("      Successfully parsed", recipeItems.length, "items");
                 }
-                dom.push(`<span class="text-small">${this.FormatCircuitConflicts(recipe.gtRecipe.circuitConflicts)}</span>`);
+                
+                if (!recipeItems || recipeItems.length === 0) {
+                    console.warn("Recipe has no items, skipping");
+                    continue;
+                }
+            
+                dom.push(`<div class="nei-recipe-box" style="left:${Math.round(i * elementWidth * elementSize)}px; top:${rowY*elementSize}px; width:${Math.round(elementWidth*elementSize)}px; height:${elementHeight*elementSize}px">`);
+                dom.push(`<div class="nei-recipe-io">`);
+                console.log("      Calling BuildRecipeIoDom for inputs...");
+                let index = this.BuildRecipeIoDom(dom, recipeItems, 0, RecipeIoType.OreDictInput, RecipeIoType.FluidInput, 0);
+                console.log("      Input done, index =", index);
+                dom.push(`<div class="arrow-container">`);
+                dom.push(`<div class="arrow"></div>`);
+                if (canSelectRecipe) {
+                    dom.push(`<button class="select-recipe-btn" data-recipe="${recipe.objectOffset}">+</button>`);
+                }
+                dom.push(`</div>`);
+                console.log("      Calling BuildRecipeIoDom for outputs...");
+                this.BuildRecipeIoDom(dom, recipeItems, index, RecipeIoType.ItemOutput, RecipeIoType.FluidOutput, 4);
+                console.log("      Output done");
+                dom.push(`</div>`);
+                console.log("      Checking gtRecipe...");
+                if (recipe.gtRecipe != null) {
+                    console.log("      Has gtRecipe, adding metadata...");
+                    dom.push(`<span>${voltageTier[recipe.gtRecipe.voltageTier].name} • ${recipe.gtRecipe.durationSeconds}s`);
+                    if (recipe.gtRecipe.amperage != 1)
+                        dom.push(` • ${recipe.gtRecipe.amperage}A`);
+                    dom.push(`</span><span class="text-small">${formatAmount(recipe.gtRecipe.voltage)}v • ${formatAmount(recipe.gtRecipe.voltage * recipe.gtRecipe.amperage * recipe.gtRecipe.durationTicks)}eu</span>`);
+                    for (const metadata of recipe.gtRecipe.metadata) {
+                        let str = MetadataToString(metadata, recipe);
+                        if (str != null) {
+                            dom.push(`<span class="text-small">${str}</span>`);
+                        }
+                    }
+                    dom.push(`<span class="text-small">${this.FormatCircuitConflicts(recipe.gtRecipe.circuitConflicts)}</span>`);
+                }
+                console.log("      Recipe", i, "complete");
+                dom.push(`</div>`);
+            } catch (error) {
+                console.error("Error rendering recipe", i, ":", error);
+                dom.push(`<div style="padding: 10px; color: red;">Error rendering recipe</div>`);
             }
-            dom.push(`</div>`);
         }
+        console.log("      BuildRowDom END, returning");
         return dom.join("");
     }
 }
@@ -387,6 +497,7 @@ export function HideNei()
     nei.classList.add("hidden");
     showNeiCallback = null;
     currentGoods = null;
+    neiInitialized = false;
 }
 
 export function NeiSelect(goods:Goods)
@@ -432,6 +543,7 @@ function Back()
 export function ShowNei(goods:RecipeObject | null, mode:ShowNeiMode, callback:ShowNeiCallback | null = null)
 {
     console.log("ShowNei", goods, mode, callback);
+    
     if (callback != null) {
         showNeiCallback = callback;
         neiHistory.length = 0;
@@ -440,6 +552,12 @@ export function ShowNei(goods:RecipeObject | null, mode:ShowNeiMode, callback:Sh
             neiHistory.push({goods:currentGoods, mode:currentMode, tabIndex:activeTabIndex});
     }
     nei.classList.remove("hidden");
+    
+    // Ensure dimensions are initialized
+    if (unitWidth === 0 || unitHeight === 0) {
+        Resize();
+    }
+    
     ShowNeiInternal(goods, mode);
 }
 
@@ -447,6 +565,11 @@ function ShowNeiInternal(goods:RecipeObject | null, mode:ShowNeiMode, tabIndex:n
 {
     currentGoods = goods;
     currentMode = mode;
+    
+    // Show NEI immediately with a loading state
+    neiBack.style.display = neiHistory.length > 0 ? "" : "none";
+    
+    // Process recipes and update UI
     let recipes:Set<Recipe> = new Set();
     if (goods instanceof OreDict) {
         GetAllOreDictRecipes(recipes, goods, mode);
@@ -473,14 +596,24 @@ function ShowNeiInternal(goods:RecipeObject | null, mode:ShowNeiMode, tabIndex:n
     search = null;
     searchBox.value = "";
 
-    // Update tab visibility
+    // Update tab visibility BEFORE selecting tab
     updateTabVisibility();
 
-    neiBack.style.display = neiHistory.length > 0 ? "" : "none";
-    const newTabIndex = tabIndex === -1 ? (goods === null ? 0 : 1) : tabIndex;
-    switchTab(newTabIndex);
+    // Determine which tab to show
+    let newTabIndex = tabIndex;
+    if (tabIndex === -1) {
+        if (goods === null) {
+            newTabIndex = 0; // Show "All Items"
+        } else {
+            // When viewing recipes for an item, use "All Recipes" tab (tab 1)
+            // This shows all recipe types for the item in one view
+            newTabIndex = 1;
+        }
+    }
     
-    Resize();
+    console.log("Selecting tab", newTabIndex, "for goods", goods?.id, "mode", mode);
+    neiInitialized = true;
+    switchTab(newTabIndex);
 }
 
 type NeiGridContents = Recipe | Goods | RecipeType;
@@ -605,44 +738,113 @@ function Resize()
             windowHeight++;
         neiScrollBox.style.width = `${windowWidth}px`;
         neiScrollBox.style.height = `${windowHeight}px`;
+        
+        // Only refresh if size actually changed
+        RefreshNeiContents();
     }
-    RefreshNeiContents();
 }
 
 let grid = new NeiGrid();
 let maxVisibleRow = 0;
+let renderingInProgress = false;
+let renderTimeout: number | null = null;
+let neiInitialized = false;
+
 function RefreshNeiContents()
 {
-    grid.Clear(unitWidth);
-    filler(grid, search, mapRecipeTypeToRecipeList);
-    grid.FinishRow();
-    neiContent.style.minHeight = `${grid.height*elementSize}px`
-    maxVisibleRow = 0;
-    neiContent.innerHTML = "";
+    // Debounce rapid calls
+    if (renderTimeout !== null) {
+        clearTimeout(renderTimeout);
+    }
     
-    UpdateVisibleItems();
+    renderTimeout = window.setTimeout(() => {
+        renderTimeout = null;
+        DoRefreshNeiContents();
+    }, 50);
+}
+
+function DoRefreshNeiContents()
+{
+    // Don't refresh until NEI is properly initialized
+    if (!neiInitialized) {
+        console.log("Skipping refresh - NEI not initialized yet");
+        return;
+    }
+    
+    // Clear any pending debounced calls
+    if (renderTimeout !== null) {
+        clearTimeout(renderTimeout);
+        renderTimeout = null;
+    }
+    
+    // If already rendering, cancel the current render and start fresh
+    if (renderingInProgress) {
+        console.log("Canceling previous render to start new one");
+    }
+    
+    renderingInProgress = true;
+    
+    try {
+        console.log("DoRefreshNeiContents: filler =", filler.name, "currentGoods =", currentGoods?.id);
+        grid.Clear(unitWidth);
+        filler(grid, search, mapRecipeTypeToRecipeList);
+        grid.FinishRow();
+        neiContent.style.minHeight = `${grid.height*elementSize}px`;
+        maxVisibleRow = 0;
+        neiContent.innerHTML = "";
+        
+        console.log("Grid ready:", grid.rowCount, "rows");
+        
+        // Immediately update visible items
+        UpdateVisibleItems();
+        renderingInProgress = false;
+        
+    } catch (error) {
+        console.error("Error in RefreshNeiContents:", error);
+        neiContent.innerHTML = '<div style="padding: 20px; text-align: center; color: red;">Error loading recipes</div>';
+        renderingInProgress = false;
+    }
 }
 
 function UpdateVisibleItems()
 {
     var top = Math.floor(neiScrollBox.scrollTop/elementSize);
-    var bottom = top + unitHeight + 1;
+    var bottom = top + unitHeight + 2; // Add buffer
+    
+    console.log("UpdateVisibleItems: processing rows", maxVisibleRow, "to", grid.rowCount);
+    
+    // Render all visible items at once
     for (var i=maxVisibleRow; i<grid.rowCount; i++) {
+        console.log("  Processing row", i);
         var row = grid.rows[i];
-        if (row.y >= bottom)
+        if (row.y >= bottom) {
+            console.log("  Row", i, "out of view, stopping");
             return;
+        }
         FillDomWithGridRow(row);
+        console.log("  Row", i, "rendered successfully");
         maxVisibleRow = i+1;
     }
+    console.log("UpdateVisibleItems: completed, rendered", maxVisibleRow, "rows");
 }
 
 function FillDomWithGridRow(row: NeiGridRow)
 {
+    console.log("    FillDomWithGridRow: allocator =", row.allocator?.constructor.name, "elements =", row.elements.length);
     var allocator = row.allocator;
-    if (allocator == null)
+    if (allocator == null) {
+        console.log("    Allocator is null, skipping");
         return;
-    var dom = allocator.BuildRowDom(row.elements, row.elementWidth, row.height, row.y);
-    neiContent.insertAdjacentHTML("beforeend", dom);
+    }
+    try {
+        console.log("    Calling BuildRowDom...");
+        var dom = allocator.BuildRowDom(row.elements, row.elementWidth, row.height, row.y);
+        console.log("    BuildRowDom completed, dom length:", dom.length);
+        neiContent.insertAdjacentHTML("beforeend", dom);
+        console.log("    Inserted into DOM");
+    } catch (error) {
+        console.error("Error in BuildRowDom:", error, row);
+    }
 }
 
 // Tab management
@@ -707,7 +909,11 @@ function updateTabVisibility() {
 }
 
 function switchTab(index: number) {
-    if (index === activeTabIndex) return;
+    // Validate index
+    if (index < 0 || index >= tabs.length) {
+        console.error("Invalid tab index:", index, "max:", tabs.length - 1);
+        index = 0;
+    }
     
     // Update active state
     neiTabs.children[activeTabIndex]?.classList.remove('active');
@@ -716,6 +922,8 @@ function switchTab(index: number) {
     
     // Update filler and refresh content
     filler = tabs[index].filler;
+    
+    // Only refresh if filler changed or forced
     RefreshNeiContents();
 }
 
@@ -737,10 +945,14 @@ neiContent.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     const selectButton = target.closest(".select-recipe-btn");
     if (selectButton && showNeiCallback?.onSelectRecipe) {
+        console.log("Select button clicked");
         const recipeOffset = parseInt(selectButton.getAttribute("data-recipe") || "0");
+        console.log("Getting recipe object for offset:", recipeOffset);
         const recipe = repository.GetObject(recipeOffset, Recipe);
-        console.log("ShowNei result (Recipe): ", recipe.id, recipe);
+        console.log("Got recipe object:", recipe.id);
+        console.log("Calling onSelectRecipe callback...");
         showNeiCallback.onSelectRecipe(recipe);
+        console.log("Callback completed, hiding NEI");
         HideNei();
     }
 });

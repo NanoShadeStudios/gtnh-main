@@ -268,11 +268,10 @@ export class Fluid extends Goods
 export class OreDict extends RecipeObject
 {
     get name(): string {return this.GetString(5);}
-    items:Item[];
-
-    constructor(repository:Repository, offset:number) {
-        super(repository, offset);
-        this.items = this.GetArray(6, Item);
+    private _items?: Item[];
+    
+    get items(): Item[] {
+        return this._items ?? (this._items = this.GetArray(6, Item));
     }
 
     MatchSearchText(query: SearchQuery): boolean
@@ -289,15 +288,20 @@ export class OreDict extends RecipeObject
 
 export class RecipeType extends MemMappedObject
 {
-    singleblocks:Item[];
-    multiblocks:Item[];
-    defaultCrafter:Item;
+    private _singleblocks?: Item[];
+    private _multiblocks?: Item[];
+    private _defaultCrafter?: Item;
 
-    constructor(repository:Repository, offset:number) {
-        super(repository, offset);
-        this.singleblocks = this.GetArray(5, Item);
-        this.defaultCrafter = this.GetObject(6, Item);
-        this.multiblocks = this.GetArray(3, Item);
+    get singleblocks(): Item[] {
+        return this._singleblocks ?? (this._singleblocks = this.GetArray(5, Item));
+    }
+    
+    get multiblocks(): Item[] {
+        return this._multiblocks ?? (this._multiblocks = this.GetArray(3, Item));
+    }
+    
+    get defaultCrafter(): Item {
+        return this._defaultCrafter ?? (this._defaultCrafter = this.GetObject(6, Item));
     }
 
     get name():string {return this.GetString(0);}
@@ -357,7 +361,11 @@ const RecipeIoTypePrototypes:IMemMappedObjectPrototype<RecipeObject>[] = [Item, 
 
 export class Recipe extends SearchableObject
 {
-    readonly recipeType:RecipeType = this.GetObject(6, RecipeType);
+    private _recipeType?: RecipeType;
+    get recipeType(): RecipeType {
+        return this._recipeType ?? (this._recipeType = this.GetObject(6, RecipeType));
+    }
+    
     get gtRecipe():GtRecipe {return this.GetObject(7, GtRecipe)}
     private computedIo:RecipeInOut[] | undefined;
 
@@ -365,8 +373,10 @@ export class Recipe extends SearchableObject
 
     private ComputeItems():RecipeInOut[]
     {
+        console.log("ComputeItems START");
         var slice = this.GetSlice(5);
         var elements = slice.length / 5;
+        console.log("ComputeItems: parsing", elements, "items");
         var result:RecipeInOut[] = new Array(elements);
         var index = 0;
         for(var i=0; i<elements; i++) {
@@ -375,12 +385,13 @@ export class Recipe extends SearchableObject
             result[i] = {
                 type:type, 
                 goodsPtr: ptr,
-                goods:this.repository.GetObject<RecipeObject>(ptr, RecipeIoTypePrototypes[type]),
+                goods: null as any, // Lazy load - will be created when accessed
                 slot: slice[index++],
                 amount: slice[index++],
                 probability: slice[index++] / 100,
             }
         }
+        console.log("ComputeItems END");
         return result;
     }
 

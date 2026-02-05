@@ -1,9 +1,20 @@
-import { Goods, Item, Recipe, RecipeInOut, RecipeIoType, RecipeObject, Repository } from "./repository.js";
+import { Goods, Item, Recipe, RecipeInOut, RecipeIoType, RecipeObject, Repository, OreDict, Fluid } from "./repository.js";
 import { SolvePage } from "./solver.js";
 import { showConfirmDialog } from './dialogues.js';
 import { Machine, singleBlockMachine } from "./machines.js";
 import { Choice } from "./machines.js";
 import { SearchQuery } from "./searchQuery.js";
+
+const repository = Repository.current;
+const RecipeIoTypePrototypes = [Item, OreDict, Fluid, Item, Fluid];
+
+// Helper to lazily load goods object for a RecipeInOut
+function ensureGoodsLoaded(item: RecipeInOut): void {
+    if (!item.goods) {
+        const proto = RecipeIoTypePrototypes[item.type];
+        item.goods = repository.GetObject(item.goodsPtr, proto as any);
+    }
+}
 
 let nextIid = 0;
 
@@ -422,6 +433,7 @@ function SearchGroup(query:SearchQuery, group:RecipeGroupModel, idMap:{[key:stri
             if (!element.recipe)
                 continue;
             for (let item of element.recipe.items) {
+                ensureGoodsLoaded(item);
                 if (item.goods.id in idMap)
                     continue;
                 idMap[item.goods.id] = item.goods.MatchSearchText(query);
@@ -489,25 +501,77 @@ export function removeProjectChangeListener(listener: ProjectChangeListener) {
     }
 }
 
+let isNotifying = false;
+
 function notifyListeners() {
-    changeListeners.forEach(listener => listener());
+    // Prevent recursive notifications
+    if (isNotifying) {
+        console.warn("Already notifying listeners, skipping recursive call");
+        return;
+    }
+    
+    isNotifying = true;
+    try {
+        changeListeners.forEach(listener => listener());
+    } finally {
+        isNotifying = false;
+    }
 }
 
 export function SetCurrentPage(newPage: PageModel) {
     console.log("SetCurrentPage", newPage);
     page = newPage;
-    UpdateProject();
+    // Use immediate update for page load (no debounce)
+    UpdateProject(false, true);
 }
 
-export function UpdateProject(visualOnly:boolean = false) {
-    if (!visualOnly)
-        SolvePage(page);
-    notifyListeners();
+let updateTimeout: number | null = null;
+let pendingVisualOnly = false;
+let isUpdating = false;
 
-    // workaround to getting empty recipes on first solve
-    if (!visualOnly)
-        SolvePage(page);
-    notifyListeners();
+export function UpdateProject(visualOnly:boolean = false, immediate:boolean = false) {
+    // Track if we have any non-visual updates pending
+    if (!visualOnly) {
+        pendingVisualOnly = false;
+    }
+    
+    // Clear any pending update
+    if (updateTimeout !== null) {
+        clearTimeout(updateTimeout);
+        updateTimeout = null;
+    }
+    
+    const doUpdate = () => {
+        // Prevent concurrent updates
+        if (isUpdating) {
+            console.warn("Update already in progress, skipping");
+            return;
+        }
+        
+        isUpdating = true;
+        
+        try {
+            if (!pendingVisualOnly && !visualOnly) {
+                SolvePage(page);
+            }
+            notifyListeners();
+            
+            // Reset the flag after processing
+            pendingVisualOnly = visualOnly;
+        } catch (error) {
+            console.error("Error during UpdateProject:", error);
+        } finally {
+            isUpdating = false;
+        }
+    };
+    
+    if (immediate) {
+        doUpdate();
+    } else {
+        // Debounce updates to prevent excessive solver runs
+        // Use a longer delay for better batching of rapid updates
+        updateTimeout = window.setTimeout(doUpdate, 100);
+    }
 }
 
 async function GetUrlHashFromJson(json:string):Promise<string>
