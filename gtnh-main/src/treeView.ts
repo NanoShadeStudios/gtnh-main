@@ -19,7 +19,7 @@ function ensureGoodsLoaded(item: RecipeInOut): void {
 
 export type TreeNodeData = {
     iid: number;
-    goods: Goods;
+    goods: Goods | OreDict;
     amount: number;
     recipe: Recipe | null;
     voltageTier: number;
@@ -46,7 +46,7 @@ let startX = 0;
 let startY = 0;
 
 // Helper to check if item should be auto-satisfied (no recipes or non-consumable)
-function shouldAutoSatisfy(goods: Goods): boolean {
+function shouldAutoSatisfy(goods: Goods | OreDict): boolean {
     // Check if it's a non-consumable (circuits, molds, etc.)
     if (goods.name) {
         if (goods.name.includes("Programmed Circuit") ||
@@ -60,7 +60,13 @@ function shouldAutoSatisfy(goods: Goods): boolean {
     }
     
     // Check if item has any recipes - goods.production is an Int32Array of recipe pointers
-    return goods.production.length === 0;
+    // OreDict doesn't have production, so check if it exists first
+    if (goods instanceof Goods && 'production' in goods) {
+        return goods.production.length === 0;
+    }
+    
+    // For OreDict or other items without production, consider them auto-satisfied
+    return true;
 }
 
 // Helper to recursively check if node and all its children are satisfied
@@ -571,6 +577,11 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
     console.log("Processing", recipe.items.length, "recipe items...");
     // Add all inputs as children (excluding programmed circuits)
     for (const item of recipe.items) {
+        // For Eye of Harmony recipes, skip all ItemInput (planets)
+        if (recipe.recipeType.name === "Eye of Harmony" && item.type === RecipeIoType.ItemInput) {
+            continue;
+        }
+        
         if (item.type === RecipeIoType.ItemInput || 
             item.type === RecipeIoType.FluidInput ||
             item.type === RecipeIoType.OreDictInput) {
@@ -696,6 +707,11 @@ function buildNodeChildren(node: TreeNodeData, depth: number = 0) {
     const inputMap = new Map<string, { goods: Goods, amount: number }>();
     
     for (const item of recipe.items) {
+        // For Eye of Harmony recipes, skip all ItemInput (planets)
+        if (recipe.recipeType.name === "Eye of Harmony" && item.type === RecipeIoType.ItemInput) {
+            continue;
+        }
+        
         if (item.type === RecipeIoType.ItemInput || 
             item.type === RecipeIoType.FluidInput ||
             item.type === RecipeIoType.OreDictInput) {
