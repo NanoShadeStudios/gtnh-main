@@ -158,7 +158,7 @@ class NeiRecipeTypeInfo extends Array implements NeiRowAllocator<Recipe>
                     goods = item.goods = { id, objectOffset, repository } as any;
                 } else {
                     // For Item and Fluid, GetObject is safe
-                    let proto = (item.type === RecipeIoType.ItemInput || item.type === RecipeIoType.ItemOutput) ? Item : Fluid;
+                    let proto: IMemMappedObjectPrototype<RecipeObject> = (item.type === RecipeIoType.ItemInput || item.type === RecipeIoType.ItemOutput) ? Item : Fluid;
                     goods = item.goods = repository.GetObject(item.goodsPtr, proto);
                 }
             }

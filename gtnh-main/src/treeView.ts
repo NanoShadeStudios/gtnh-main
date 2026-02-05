@@ -1,5 +1,5 @@
 import { ShowNei, ShowNeiMode, ShowNeiCallback } from "./nei.js";
-import { Goods, Repository, Item, Fluid, Recipe, RecipeIoType, OreDict, RecipeInOut } from "./repository.js";
+import { Goods, Repository, Item, Fluid, Recipe, RecipeIoType, OreDict, RecipeInOut, IMemMappedObjectPrototype, RecipeObject } from "./repository.js";
 import { IconBox } from "./itemIcon.js";
 import { ShowTooltip } from "./tooltip.js";
 import { formatAmount, voltageTier } from "./utils.js";
@@ -7,7 +7,7 @@ import { UpdateProject, page } from "./page.js";
 import { machines, GetSingleBlockMachine } from "./machines.js";
 
 const repository = Repository.current;
-const RecipeIoTypePrototypes = [Item, OreDict, Fluid, Item, Fluid];
+const RecipeIoTypePrototypes: IMemMappedObjectPrototype<RecipeObject>[] = [Item, OreDict, Fluid, Item, Fluid];
 
 // Helper to lazily load goods object for a RecipeInOut
 function ensureGoodsLoaded(item: RecipeInOut): void {

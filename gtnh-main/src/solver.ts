@@ -1,11 +1,11 @@
 import { Model, Solution } from "./types/javascript-lp-solver.js";
 import { PageModel, RecipeGroupModel, RecipeModel, ProductModel, FlowInformation, LinkAlgorithm, OverclockResult } from './page.js';
-import { Goods, Item, OreDict, Recipe, RecipeIoType, RecipeObject, Repository, Fluid, RecipeInOut } from "./repository.js";
+import { Goods, Item, OreDict, Recipe, RecipeIoType, RecipeObject, Repository, Fluid, RecipeInOut, IMemMappedObjectPrototype } from "./repository.js";
 import { singleBlockMachine, machines, notImplementedMachine, GetSingleBlockMachine, GetParameter } from "./machines.js";
 import { voltageTier } from "./utils.js";
 
 const repository = Repository.current;
-const RecipeIoTypePrototypes = [Item, OreDict, Fluid, Item, Fluid];
+const RecipeIoTypePrototypes: IMemMappedObjectPrototype<RecipeObject>[] = [Item, OreDict, Fluid, Item, Fluid];
 
 // Helper to lazily load goods object for a RecipeInOut
 function ensureGoodsLoaded(item: RecipeInOut): void {
