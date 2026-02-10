@@ -106,7 +106,7 @@ export class Repository
 
     GetSlice(pointer:number):Int32Array
     {
-        return (this.objects[pointer] as Int32Array) ?? (this.objects[pointer] = this.ReadSlice(pointer))   
+        return (this.objects[pointer] as Int32Array) ?? (this.objects[pointer] = this.ReadSlice(pointer));
     }
 
     private ReadSlice(pointer:number):Int32Array
@@ -190,8 +190,22 @@ class MemMappedObject
     protected GetArray<T extends MemMappedObject>(offset:number, prototype:IMemMappedObjectPrototype<T>)
     {
         let slice = this.GetSlice(offset);
+        
+        // Protect against extremely large arrays
+        if (slice.length > 10000 || slice.length < 0 || !isFinite(slice.length)) {
+            console.error("Invalid array length:", slice.length, "at offset:", offset);
+            return [];
+        }
+        
         let result:T[] = new Array(slice.length);
+        const startTime = performance.now();
+        
         for (var i = 0; i < slice.length; i++) {
+            // Timeout protection
+            if (i > 0 && i % 100 === 0 && performance.now() - startTime > 200) {
+                console.error("Timeout in GetArray at index", i, "offset:", offset);
+                return result.slice(0, i);
+            }
             result[i] = this.repository.GetObject(slice[i], prototype);
         }
         return result;
@@ -271,7 +285,34 @@ export class OreDict extends RecipeObject
     private _items?: Item[];
     
     get items(): Item[] {
-        return this._items ?? (this._items = this.GetArray(6, Item));
+        if (this._items) return this._items;
+        
+        try {
+            const slice = (this as any).GetSlice(6);
+            
+            // Protect against extremely large arrays
+            if (!slice || slice.length > 10000 || slice.length < 0 || !isFinite(slice.length)) {
+                console.error("Invalid OreDict items array length:", slice?.length, "for:", this.name);
+                return this._items = [];
+            }
+            
+            const result: Item[] = new Array(slice.length);
+            const startTime = performance.now();
+            
+            for (let i = 0; i < slice.length; i++) {
+                // Timeout protection
+                if (i > 0 && i % 100 === 0 && performance.now() - startTime > 200) {
+                    console.error("Timeout loading OreDict items at index", i, "for:", this.name);
+                    return this._items = result.slice(0, i);
+                }
+                result[i] = this.repository.GetObject(slice[i], Item);
+            }
+            
+            return this._items = result;
+        } catch (error) {
+            console.error("Error loading OreDict items for:", this.name, error);
+            return this._items = [];
+        }
     }
 
     MatchSearchText(query: SearchQuery): boolean
@@ -369,35 +410,86 @@ export class Recipe extends SearchableObject
     get gtRecipe():GtRecipe {return this.GetObject(7, GtRecipe)}
     private computedIo:RecipeInOut[] | undefined;
 
-    get items():RecipeInOut[] { return this.computedIo ?? (this.computedIo = this.ComputeItems());}
+    get items():RecipeInOut[] { 
+        return this.computedIo ?? (this.computedIo = this.ComputeItems());
+    }
 
     private ComputeItems():RecipeInOut[]
     {
-        var slice = this.GetSlice(5);
-        var elements = slice.length / 5;
-        var result:RecipeInOut[] = new Array(elements);
-        var index = 0;
-        for(var i=0; i<elements; i++) {
-            var type:RecipeIoType = slice[index++];
-            var ptr = slice[index++];
-            result[i] = {
-                type:type, 
-                goodsPtr: ptr,
-                goods: null as any, // Lazy load - will be created when accessed
-                slot: slice[index++],
-                amount: slice[index++],
-                probability: slice[index++] / 100,
+        try {
+            var slice = this.GetSlice(5);
+            
+            // Check for absurdly large slices before any calculations
+            if (!slice || slice.length > 5000 || slice.length < 0 || !isFinite(slice.length)) {
+                console.error("Invalid slice length for recipe:", this.id, slice?.length);
+                return [];
             }
+            
+            var elements = slice.length / 5;
+            
+            // Protect against recipes with too many items
+            if (elements > 1000 || elements <= 0 || !isFinite(elements)) {
+                console.error("Invalid item count for recipe:", this.id, elements);
+                return [];
+            }
+            
+            var result:RecipeInOut[] = new Array(elements);
+            var index = 0;
+            const startTime = performance.now();
+            
+            for(var i=0; i<elements; i++) {
+                // Timeout protection
+                if (performance.now() - startTime > 200) {
+                    console.error("Timeout parsing recipe:", this.id, "at item", i);
+                    return result.slice(0, i);
+                }
+                
+                var type:RecipeIoType = slice[index++];
+                var ptr = slice[index++];
+                result[i] = {
+                    type:type, 
+                    goodsPtr: ptr,
+                    goods: null as any, // Lazy load - will be created when accessed
+                    slot: slice[index++],
+                    amount: slice[index++],
+                    probability: slice[index++] / 100,
+                }
+            }
+            return result;
+        } catch (error) {
+            console.error("Error parsing recipe:", this.id, error);
+            return [];
         }
-        return result;
     }
 
     MatchSearchText(query: SearchQuery): boolean 
     {
-        var slice = this.GetSlice(5);
-        var count = slice.length / 5;
+        try {
+            var slice = this.GetSlice(5);
+            
+            // Check for absurdly large slices before any calculations
+            if (!slice || slice.length > 5000 || slice.length < 0 || !isFinite(slice.length)) {
+                console.error("Invalid slice length for recipe search:", this.id, slice?.length);
+                return false;
+            }
+            
+            var count = slice.length / 5;
+            
+            // Protect against recipes with too many items
+            if (count > 1000 || count <= 0 || !isFinite(count)) {
+                console.error("Invalid item count for recipe search:", this.id, count);
+                return false;
+            }
+        
+        const startTime = performance.now();
         for (var i=0; i<count; i++) 
         {
+            // Timeout protection
+            if (performance.now() - startTime > 200) {
+                console.error("Timeout searching recipe:", this.id, "at item", i);
+                return false;
+            }
+            
             var pointer = slice[i*5+1];
             if (!this.repository.ObjectMatchQueryBits(query, pointer))
                 continue;
@@ -407,5 +499,9 @@ export class Recipe extends SearchableObject
                 return true;
         }
         return false;
+        } catch (error) {
+            console.error("Error in MatchSearchText for recipe:", this.id, error);
+            return false;
+        }
     }
 }

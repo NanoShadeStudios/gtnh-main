@@ -4,6 +4,58 @@ import { Fluid, Goods, Item, Recipe, RecipeInOut, RecipeIoType, RecipeType, Repo
 import { TIER_LV, TIER_MV, TIER_LUV, TIER_ZPM, TIER_UV, TIER_UHV, TIER_UEV, TIER_UIV, TIER_UXV, CoilTierNames } from "./utils.js";
 import { voltageTier, getFusionTierByStartupCost, formatTicksAsTime } from "./utils.js";
 
+// Helper to safely get recipe items with timeout protection
+function getSafeRecipeItems(recipe: Recipe | undefined): RecipeInOut[] {
+    if (!recipe) return [];
+    try {
+        const slice = (recipe as any).GetSlice(5);
+        
+        // Check for absurdly large slices
+        if (!slice || slice.length > 5000 || slice.length < 0 || !isFinite(slice.length)) {
+            console.error("Invalid slice length for recipe:", recipe.id, slice?.length);
+            return [];
+        }
+        
+        const itemCount = slice.length / 5;
+        
+        if (itemCount > 1000 || itemCount <= 0 || !isFinite(itemCount)) {
+            console.error("Invalid item count for recipe:", recipe.id, itemCount);
+            return [];
+        }
+        
+        const recipeItems: RecipeInOut[] = [];
+        let sliceIndex = 0;
+        const startTime = performance.now();
+        
+        for (let j = 0; j < itemCount; j++) {
+            if (performance.now() - startTime > 200) {
+                console.error("Timeout parsing recipe:", recipe.id, "at item", j);
+                break;
+            }
+            
+            const type = slice[sliceIndex++];
+            const ptr = slice[sliceIndex++];
+            const slot = slice[sliceIndex++];
+            const amount = slice[sliceIndex++];
+            const probability = slice[sliceIndex++];
+            
+            recipeItems.push({
+                type: type,
+                goodsPtr: ptr,
+                goods: null as any,
+                slot: slot,
+                amount: amount,
+                probability: probability / 100
+            });
+        }
+        
+        return recipeItems;
+    } catch (error) {
+        console.error("Error parsing recipe:", recipe?.id, error);
+        return [];
+    }
+}
+
 export type MachineCoefficient<T> = Exclude<T, Function> | ((recipe:RecipeModel, choices:{[key:string]:number}) => T);
 
 export abstract class Overclocker {
@@ -1049,7 +1101,7 @@ machines["Dimensionally Transcendent Plasma Forge"] = {
             choices.discount = 1;
         }
 
-        let catalyst = findDtpfCatalyst(recipe.recipe?.items || []);
+        let catalyst = findDtpfCatalyst(getSafeRecipeItems(recipe.recipe));
         if (catalyst) {
             choices.catalyst = catalyst.tier;
         }
@@ -1377,14 +1429,14 @@ machines["Quantum Force Transformer"] = {
     recipe: (recipe, choices, items) => {
         const numOutputs = recipe.getOutputCount();
         if (numOutputs == 0) {
-            return recipe.recipe?.items ?? [];
+            return getSafeRecipeItems(recipe.recipe);
         }
         
         const focusTier = recipe.recipe?.gtRecipe.MetadataByKey("qft_focus_tier") ?? 1;
 
         const baseProbability = 1.0 / numOutputs;
         
-        items = createEditableCopy(recipe.recipe?.items || []);
+        items = createEditableCopy(getSafeRecipeItems(recipe.recipe));
         // NOTE: we rely on this matching the NEI order
         let j = 0;
         for (let i=0; i<items.length; i++) {
@@ -1687,8 +1739,8 @@ const EyeOfHarmonyTierNames = [
 
 function getEyeOfHarmonyRecipeTier(recipeModel : RecipeModel) : number {
     let planetItem = undefined;
-    const items = recipeModel.recipe?.items;
-    if (items === undefined)
+    const items = getSafeRecipeItems(recipeModel.recipe);
+    if (items.length === 0)
         return 0;
 
     for (let i = 0; i < items.length; ++i) {

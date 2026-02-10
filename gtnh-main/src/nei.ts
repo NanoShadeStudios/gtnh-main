@@ -35,7 +35,7 @@ document.addEventListener("keydown", (event) => {
     }
 
     // Only handle printable characters
-    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && searchBox.value == "") {
+    if (event.key && event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && searchBox.value == "") {
         if (document.activeElement !== searchBox) {
             searchBox.focus();
         }
@@ -64,7 +64,17 @@ class ItemAllocator implements NeiRowAllocator<Goods>
         const selectGoodsAction = isSelectingGoods ? ' data-action="select"' : "";
         const gridWidth = elements.length * 36;
         dom.push(`<div class="nei-items-row icon-grid" style="--grid-pixel-width:${gridWidth}px; --grid-pixel-height:36px; top:${elementSize*rowY}px">`);
+        
+        const startTime = performance.now();
+        const maxTime = 500; // 500ms per row
+        
         for (var i=0; i<elements.length; i++) {
+            // Check timeout every 100 items
+            if (i > 0 && i % 100 === 0 && performance.now() - startTime > maxTime) {
+                console.error("BuildRowDom timeout at item", i, "of", elements.length);
+                break;
+            }
+            
             var elem = elements[i];
             const gridX = (i % elements.length) * 36 + 2;
             const gridY = Math.floor(i / elements.length) * 36 + 2;
@@ -229,10 +239,17 @@ class NeiRecipeTypeInfo extends Array implements NeiRowAllocator<Recipe>
                 } else {
                     // Manually parse recipe items with timeout protection instead of using recipe.items
                     const slice = (recipe as any).GetSlice(5);
+                    
+                    // Check for absurdly large slices
+                    if (!slice || slice.length > 5000 || slice.length < 0 || !isFinite(slice.length)) {
+                        console.error("Invalid slice length for recipe:", recipe.id, slice?.length);
+                        continue;
+                    }
+                    
                     const itemCount = slice.length / 5;
                     
-                    if (itemCount > 500 || itemCount <= 0) {
-                        console.error("Invalid item count:", itemCount);
+                    if (itemCount > 1000 || itemCount <= 0 || !isFinite(itemCount)) {
+                        console.error("Invalid item count for recipe:", recipe.id, itemCount);
                         continue;
                     }
                     
@@ -385,7 +402,15 @@ var FillNeiAllItems:NeiFiller = function(grid:NeiGrid, search : SearchQuery | nu
 function FillNeiItemsWith<T extends Goods>(grid:NeiGridAllocator<Goods>, search: SearchQuery | null, arr:Int32Array, proto:IMemMappedObjectPrototype<T>):void
 {
     var len = arr.length;
+    const startTime = performance.now();
+    
     for (var i=0; i<len; i++) {
+        // Timeout protection every 100 items
+        if (i > 0 && i % 100 === 0 && performance.now() - startTime > 500) {
+            console.error("Timeout in FillNeiItemsWith at item", i, "of", len);
+            break;
+        }
+        
         var element = repository.GetObjectIfMatchingSearch(search, arr[i], proto);
         if (element !== null)
             grid.Add(element);
@@ -483,6 +508,8 @@ export function HideNei()
     showNeiCallback = null;
     currentGoods = null;
     neiInitialized = false;
+    neiTabs.style.display = ""; // Restore tabs display
+    filler = FillNeiAllItems; // Reset to default filler
 }
 
 export function NeiSelect(goods:Goods)
@@ -491,6 +518,45 @@ export function NeiSelect(goods:Goods)
         showNeiCallback.onSelectGoods(goods);
     }
     HideNei();
+}
+
+export function ShowOreDictItems(oreDict: OreDict, callback: ShowNeiCallback)
+{
+    showNeiCallback = callback;
+    neiHistory.length = 0;
+    
+    currentGoods = oreDict;
+    currentMode = ShowNeiMode.Production;
+    
+    neiBack.style.display = "none";
+    nei.classList.remove("hidden");
+    
+    // Create custom filler to show only items from this OreDict
+    const oreDictItems = oreDict.items;
+    const customFiller: NeiFiller = function(grid: NeiGrid, search: SearchQuery | null)
+    {
+        var allocator = grid.BeginAllocation(itemAllocator);
+        for (const item of oreDictItems) {
+            if (search == null || repository.IsObjectMatchingSearch(item, search)) {
+                allocator.Add(item);
+            }
+        }
+    }
+    
+    filler = customFiller;
+    search = null;
+    searchBox.value = "";
+    
+    // Show items directly without tabs
+    neiTabs.style.display = "none";
+    
+    neiInitialized = true;
+    RefreshNeiContents();
+    
+    // Resize to fit
+    if (unitWidth === 0 || unitHeight === 0) {
+        Resize();
+    }
 }
 
 function AddToSet(set:Set<Recipe>, goods:Goods, mode:ShowNeiMode)
@@ -550,6 +616,7 @@ function ShowNeiInternal(goods:RecipeObject | null, mode:ShowNeiMode, tabIndex:n
     
     // Show NEI immediately with a loading state
     neiBack.style.display = neiHistory.length > 0 ? "" : "none";
+    neiTabs.style.display = ""; // Ensure tabs are visible for normal NEI
     
     // Process recipes and update UI
     let recipes:Set<Recipe> = new Set();
@@ -693,12 +760,80 @@ class NeiGrid implements NeiGridAllocator<any>
     Add<T extends NeiGridContents>(element:T)
     {
         var row = this.currentRow;
-        if (row === null || row.elements.length >= this.elementsPerRow)
+        
+        // CRITICAL: Max 1 element per row to prevent ANY possibility of large HTML generation
+        // Even complex recipes like molten infinity won't freeze with this limit
+        const maxElementsPerRowHardLimit = 1;
+        const estimatedElementSize = this.estimateElementHTMLSize(element);
+        const maxRowHTMLSize = 500000; // 500KB limit per row (reduced from 1MB)
+        
+        let forceNewRow = false;
+        let reason = "";
+        
+        if (row === null) {
+            // No current row
+            forceNewRow = true;
+            reason = "no current row";
+        } else if (row.elements.length >= this.elementsPerRow) {
+            // Standard grid limit
+            forceNewRow = true; 
+            reason = "grid limit";
+        } else if (row.elements.length >= maxElementsPerRowHardLimit) {
+            // Hard safety limit - ALWAYS 1 element max
+            forceNewRow = true;
+            reason = "hard limit (1 element max)";
+        } else if (row.elements.length > 0) {
+            // Check estimated total HTML size for the row
+            const currentRowEstimatedSize = this.estimateRowHTMLSize(row);
+            if (currentRowEstimatedSize + estimatedElementSize > maxRowHTMLSize) {
+                forceNewRow = true;
+                reason = "HTML size limit (" + Math.round(currentRowEstimatedSize/1000) + "KB)";
+            }
+        }
+        
+        if (forceNewRow) {
             row = this.NextRow();
+        }
+
+        // Ensure row is never null
+        if (!row) {
+            row = this.NextRow();
+        }
+
         var height = this.allocator?.CalculateHeight(element) ?? 1;
         if (row.height < height)
             row.height = height;
         row.elements.push(element);
+    }
+    
+    private estimateElementHTMLSize(element: any): number {
+        // Conservative estimation of HTML size based on element type
+        if (!element) return 1000;
+        
+        // Base size for a simple element
+        let estimatedSize = 500; // Basic HTML structure
+        
+        // Add based on element properties
+        if (element.inputs && element.inputs.length) {
+            estimatedSize += element.inputs.length * 200; // Each input adds ~200 chars
+        }
+        if (element.outputs && element.outputs.length) {
+            estimatedSize += element.outputs.length * 200; // Each output adds ~200 chars  
+        }
+        if (element.items && element.items.length > 10) {
+            estimatedSize += element.items.length * 100; // Large item lists
+        }
+        
+        // Cap at reasonable maximum for single element
+        return Math.min(estimatedSize, 500000); // 500KB max per element
+    }
+    
+    private estimateRowHTMLSize(row: NeiGridRow): number {
+        let totalSize = 1000; // Base row HTML
+        for (const element of row.elements) {
+            totalSize += this.estimateElementHTMLSize(element);
+        }
+        return totalSize;
     }
 }
 
@@ -746,8 +881,10 @@ function RefreshNeiContents()
 
 function DoRefreshNeiContents()
 {
+    console.log("DoRefreshNeiContents START");
     // Don't refresh until NEI is properly initialized
     if (!neiInitialized) {
+        console.log("NEI not initialized, skipping refresh");
         return;
     }
     
@@ -759,22 +896,30 @@ function DoRefreshNeiContents()
     
     // If already rendering, cancel the current render and start fresh
     if (renderingInProgress) {
+        console.log("Rendering already in progress");
         // Previous render will be cancelled
     }
     
     renderingInProgress = true;
     
     try {
+        console.log("Clearing grid...");
         grid.Clear(unitWidth);
+        console.log("Calling filler...");
         filler(grid, search, mapRecipeTypeToRecipeList);
+        console.log("Finishing row...");
         grid.FinishRow();
+        console.log("Setting min height...");
         neiContent.style.minHeight = `${grid.height*elementSize}px`;
         maxVisibleRow = 0;
         neiContent.innerHTML = "";
         
+        console.log("Updating visible items...");
         // Immediately update visible items
         UpdateVisibleItems();
         renderingInProgress = false;
+        console.log("DoRefreshNeiContents completed successfully");
+        console.log("=== DoRefreshNeiContents END ===");
         
     } catch (error) {
         console.error("Error in RefreshNeiContents:", error);
@@ -785,29 +930,106 @@ function DoRefreshNeiContents()
 
 function UpdateVisibleItems()
 {
+    const updateStart = performance.now();
+    console.log("*** UpdateVisibleItems START ***, timestamp:", updateStart, "maxVisibleRow:", maxVisibleRow, "rowCount:", grid.rowCount);
+    
     var top = Math.floor(neiScrollBox.scrollTop/elementSize);
     var bottom = top + unitHeight + 2; // Add buffer
     
-    // Render all visible items at once
-    for (var i=maxVisibleRow; i<grid.rowCount; i++) {
-        var row = grid.rows[i];
-        if (row.y >= bottom) {
-            return;
+    let itemsRendered = 0;
+    
+    // Batch render rows across multiple frames to avoid freezing
+    function renderNextBatch() {
+        const batchStart = performance.now();
+        console.log("renderNextBatch called at", batchStart, "maxVisibleRow:", maxVisibleRow);
+        const maxBatchTime = 16; // ~1 frame at 60fps
+        
+        let batchItemsRendered = 0;
+        
+        while (maxVisibleRow < grid.rowCount) {
+            var row = grid.rows[maxVisibleRow];
+            console.log("Processing row", maxVisibleRow, "at y:", row.y, "bottom:", bottom, "elements:", row.elements?.length || 0);
+            
+            if (row.y >= bottom) {
+                console.log("UpdateVisibleItems END: row.y >= bottom at row", maxVisibleRow);
+                console.log("UpdateVisibleItems COMPLETE: rendered", itemsRendered, "rows in", performance.now() - updateStart, "ms");
+                console.log("Total DOM children:", neiContent.children.length);
+                console.log("*** UpdateVisibleItems END COMPLETE - no more processing ***");
+                return; // Done
+            }
+            
+            console.log("About to fill DOM for row", maxVisibleRow, "at timestamp:", performance.now());
+            const rowStart = performance.now();
+            FillDomWithGridRow(row);
+            const rowTime = performance.now() - rowStart;
+            console.log("Row", maxVisibleRow, "filled in", rowTime, "ms, DOM children now:", neiContent.children.length);
+            
+            maxVisibleRow++;
+            itemsRendered++;
+            batchItemsRendered++;
+            
+            // Check if we've used up this frame's time budget
+            const batchElapsed = performance.now() - batchStart;
+            console.log("Batch time elapsed:", batchElapsed, "ms, budget:", maxBatchTime, "ms");
+            
+            if (batchElapsed > maxBatchTime) {
+                // Schedule next batch
+                console.log("Batching: rendered", batchItemsRendered, "items this batch,", itemsRendered, "total rows, scheduling next batch...");
+                requestAnimationFrame(renderNextBatch);
+                return;
+            }
         }
-        FillDomWithGridRow(row);
-        maxVisibleRow = i+1;
+        
+        console.log("UpdateVisibleItems COMPLETE: All rows rendered (", itemsRendered, ") in", performance.now() - updateStart, "ms");
+        console.log("Total DOM children:", neiContent.children.length);
+        console.log("*** UpdateVisibleItems END COMPLETE - no more processing ***");
     }
+    
+    console.log("About to call renderNextBatch for first time...");
+    renderNextBatch();
+    console.log("Initial renderNextBatch call returned");
 }
 
 function FillDomWithGridRow(row: NeiGridRow)
 {
+    const rowStart = performance.now();
+    
     var allocator = row.allocator;
     if (allocator == null) {
         return;
     }
+    
     try {
+        const buildStart = performance.now();
         var dom = allocator.BuildRowDom(row.elements, row.elementWidth, row.height, row.y);
+        const buildTime = performance.now() - buildStart;
+        
+        // CRITICAL: Emergency check for oversized HTML
+        const maxAllowedDOMSize = 1000000; // 1MB absolute maximum (reduced from 2MB)
+        if (dom.length > maxAllowedDOMSize) {
+            const originalSize = dom.length;
+            console.error("EMERGENCY: Oversized DOM detected!", originalSize, "chars for", row.elements.length, "elements. Truncating!");
+            // Truncate at last complete element to prevent broken HTML
+            let truncateAt = dom.lastIndexOf('</item-icon>', maxAllowedDOMSize);
+            if (truncateAt === -1) truncateAt = dom.lastIndexOf('</div>', maxAllowedDOMSize);
+            if (truncateAt === -1) truncateAt = Math.min(maxAllowedDOMSize, dom.length);
+            dom = dom.substring(0, truncateAt) + '</div>'; // Close any open div
+            console.warn("DOM truncated from", Math.round(originalSize/1000), "KB to", Math.round(dom.length/1000), "KB");
+        }
+        
+        const insertStart = performance.now();
         neiContent.insertAdjacentHTML("beforeend", dom);
+        const insertTime = performance.now() - insertStart;
+        
+        const totalTime = performance.now() - rowStart;
+        
+        // Enhanced warnings for performance issues
+        if (totalTime > 50) {
+            console.warn("SLOW ROW: Row took", totalTime, "ms, DOM:", Math.round(dom.length/1000), "KB");
+        }
+        if (insertTime > 100) {
+            console.error("VERY SLOW INSERT:", insertTime, "ms! This may cause freezing.");
+        }
     } catch (error) {
         console.error("Error in BuildRowDom:", error, row);
     }

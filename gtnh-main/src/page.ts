@@ -16,6 +16,58 @@ function ensureGoodsLoaded(item: RecipeInOut): void {
     }
 }
 
+// Helper to safely get recipe items with timeout protection
+function getSafeRecipeItems(recipe: Recipe): RecipeInOut[] {
+    if (!recipe) return [];
+    try {
+        const slice = (recipe as any).GetSlice(5);
+        
+        // Check for absurdly large slices
+        if (!slice || slice.length > 5000 || slice.length < 0 || !isFinite(slice.length)) {
+            console.error("Invalid slice length for recipe:", recipe.id, slice?.length);
+            return [];
+        }
+        
+        const itemCount = slice.length / 5;
+        
+        if (itemCount > 1000 || itemCount <= 0 || !isFinite(itemCount)) {
+            console.error("Invalid item count for recipe:", recipe.id, itemCount);
+            return [];
+        }
+        
+        const recipeItems: RecipeInOut[] = [];
+        let sliceIndex = 0;
+        const startTime = performance.now();
+        
+        for (let j = 0; j < itemCount; j++) {
+            if (performance.now() - startTime > 200) {
+                console.error("Timeout parsing recipe:", recipe.id, "at item", j);
+                break;
+            }
+            
+            const type = slice[sliceIndex++];
+            const ptr = slice[sliceIndex++];
+            const slot = slice[sliceIndex++];
+            const amount = slice[sliceIndex++];
+            const probability = slice[sliceIndex++];
+            
+            recipeItems.push({
+                type: type,
+                goodsPtr: ptr,
+                goods: null as any,
+                slot: slot,
+                amount: amount,
+                probability: probability / 100
+            });
+        }
+        
+        return recipeItems;
+    } catch (error) {
+        console.error("Error parsing recipe:", recipe.id, error);
+        return [];
+    }
+}
+
 let nextIid = 0;
 
 export abstract class ModelObjectVisitor
@@ -432,7 +484,7 @@ function SearchGroup(query:SearchQuery, group:RecipeGroupModel, idMap:{[key:stri
         } else if (element instanceof RecipeModel) {
             if (!element.recipe)
                 continue;
-            for (let item of element.recipe.items) {
+            for (let item of getSafeRecipeItems(element.recipe)) {
                 ensureGoodsLoaded(item);
                 if (item.goods.id in idMap)
                     continue;

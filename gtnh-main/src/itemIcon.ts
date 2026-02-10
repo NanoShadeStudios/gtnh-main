@@ -27,32 +27,50 @@ let highlightStyle: HTMLStyleElement = document.getElementById('item-icon-highli
 export class IconBox extends HTMLElement
 {
     public obj:RecipeObject | null = null;
+    public dataId: string | null = null;
+    public iconInitialized: boolean = false;
 
     constructor()
     {
         super();
+        // Absolutely minimal constructor - no work at all
+    }
+
+    connectedCallback()
+    {
+        // Store data-id and initialize immediately since rows are now size-limited
+        this.dataId = this.getAttribute('data-id');
         
-        this.addEventListener("mouseenter", () => {
-            const obj = this.GetDisplayObject();
+        // Initialize icon immediately
+        this.InitializeIcon();
+        
+        // Attach event handlers
+        this.addEventListener('mouseenter', () => this.HandleMouseEnter());
+        this.addEventListener('mouseleave', () => this.HandleMouseLeave());
+        this.addEventListener('click', () => this.HandleLeftClick());
+        this.addEventListener('contextmenu', (e: MouseEvent) => this.HandleRightClick(e));
+    }
+    
+    public InitializeIcon()
+    {
+        if (this.iconInitialized || !this.dataId) return;
+        this.iconInitialized = true;
+        
+        try {
+            const obj = Repository.current.GetById<RecipeObject>(this.dataId);
             if (obj) {
-                const actionType = this.getAttribute('data-action');
-                const actionText = actionType ? actions[actionType] : undefined;
-                ShowTooltip(this, {
-                    goods: obj,
-                    action: actionText ?? "Left/Right click to view Production/Consumption for this item"
-                });
-                
-                this.UpdateHighlightStyle();
+                const goods = obj instanceof OreDict ? obj.items[0] : obj;
+                if (goods && 'iconId' in goods) {
+                    const iconId = (goods as any).iconId;
+                    const ix = iconId % 256;
+                    const iy = Math.floor(iconId / 256);
+                    this.style.setProperty('--pos-x', `${ix * -32}px`);
+                    this.style.setProperty('--pos-y', `${iy * -32}px`);
+                }
             }
-        });
-        
-        this.addEventListener("mouseleave", () => {
-            highlightStyle.textContent = '';
-        });
-        
-        this.addEventListener('contextmenu', this.RightClick);
-        this.addEventListener('click', this.LeftClick);
-        this.UpdateIconId();
+        } catch (error) {
+            console.error("Error initializing icon:", error);
+        }
     }
 
     private StartOredictCycle(oredict: OreDict) {
@@ -85,6 +103,17 @@ export class IconBox extends HTMLElement
         }
     }
 
+    private EnsureObjectLoaded() {
+        if (!this.obj && this.dataId) {
+            this.obj = Repository.current.GetById<RecipeObject>(this.dataId);
+            if (this.obj instanceof OreDict) {
+                this.StartOredictCycle(this.obj);
+            } else {
+                this.UpdateIconId();
+            }
+        }
+    }
+
     UpdateIconId() {
         const obj = this.GetDisplayObject();
         if (obj) {
@@ -107,14 +136,11 @@ export class IconBox extends HTMLElement
     }
 
     attributeChangedCallback(name: string, oldValue: string, newValue: string) {
-        if (name === 'data-id') {
+        if (name === 'data-id' && oldValue !== newValue) {
             this.StopOredictCycle();
-            this.obj = Repository.current.GetById<RecipeObject>(newValue);
-            if (this.obj instanceof OreDict) {
-                this.StartOredictCycle(this.obj);
-            } else {
-                this.UpdateIconId();
-            }
+            this.obj = null;
+            this.dataId = newValue;
+            this.iconInitialized = false;
         }
     }
 
@@ -145,8 +171,10 @@ export class IconBox extends HTMLElement
         return this.getAttribute('data-action');
     }
 
-    RightClick(event:any)
+    HandleRightClick(event:MouseEvent)
     {
+        this.InitializeIcon();
+        this.EnsureObjectLoaded();
         if (this.CustomAction())
             return;
         if (event.ctrlKey || event.metaKey)
@@ -155,14 +183,38 @@ export class IconBox extends HTMLElement
         ShowNei(this.obj, ShowNeiMode.Consumption, null);
     }
 
-    LeftClick()
+    HandleLeftClick()
     {
+        this.InitializeIcon();
+        this.EnsureObjectLoaded();
         let action = this.CustomAction();
         if (action === "select")
             NeiSelect(this.GetDisplayObject() as Goods);
         if (action)
             return;
         ShowNei(this.obj, ShowNeiMode.Production, null);
+    }
+
+    HandleMouseEnter()
+    {
+        this.InitializeIcon();
+        this.EnsureObjectLoaded();
+        const obj = this.GetDisplayObject();
+        if (obj) {
+            const actionType = this.getAttribute('data-action');
+            const actionText = actionType ? actions[actionType] : undefined;
+            ShowTooltip(this, {
+                goods: obj,
+                action: actionText ?? "Left/Right click to view Production/Consumption for this item"
+            });
+            
+            this.UpdateHighlightStyle();
+        }
+    }
+
+    HandleMouseLeave()
+    {
+        highlightStyle.textContent = '';
     }
 }
 

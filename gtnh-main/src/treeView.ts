@@ -1,4 +1,4 @@
-import { ShowNei, ShowNeiMode, ShowNeiCallback } from "./nei.js";
+import { ShowNei, ShowNeiMode, ShowNeiCallback, ShowOreDictItems } from "./nei.js";
 import { Goods, Repository, Item, Fluid, Recipe, RecipeIoType, OreDict, RecipeInOut, IMemMappedObjectPrototype, RecipeObject } from "./repository.js";
 import { IconBox } from "./itemIcon.js";
 import { ShowTooltip } from "./tooltip.js";
@@ -8,6 +8,60 @@ import { machines, GetSingleBlockMachine } from "./machines.js";
 
 const repository = Repository.current;
 const RecipeIoTypePrototypes: IMemMappedObjectPrototype<RecipeObject>[] = [Item, OreDict, Fluid, Item, Fluid];
+
+// Helper to safely get recipe items with timeout protection
+function getSafeRecipeItems(recipe: Recipe): RecipeInOut[] {
+    if (!recipe) return [];
+    try {
+        const slice = (recipe as any).GetSlice(5);
+        
+        // Check for absurdly large slices
+        if (!slice || slice.length > 5000 || slice.length < 0 || !isFinite(slice.length)) {
+            console.error("Invalid slice length for recipe:", recipe.id, slice?.length);
+            return [];
+        }
+        
+        const itemCount = slice.length / 5;
+        
+        // Sanity check on item count
+        if (itemCount > 1000 || itemCount <= 0 || !isFinite(itemCount)) {
+            console.error("Invalid item count for recipe:", recipe.id, itemCount);
+            return [];
+        }
+        
+        const recipeItems: RecipeInOut[] = [];
+        let sliceIndex = 0;
+        const startTime = performance.now();
+        
+        for (let j = 0; j < itemCount; j++) {
+            // Timeout check
+            if (performance.now() - startTime > 200) {
+                console.error("Timeout while parsing recipe items for:", recipe.id, "at item", j);
+                break;
+            }
+            
+            const type = slice[sliceIndex++];
+            const ptr = slice[sliceIndex++];
+            const slot = slice[sliceIndex++];
+            const amount = slice[sliceIndex++];
+            const probability = slice[sliceIndex++];
+            
+            recipeItems.push({
+                type: type,
+                goodsPtr: ptr,
+                goods: null as any, // Lazy load
+                slot: slot,
+                amount: amount,
+                probability: probability / 100
+            });
+        }
+        
+        return recipeItems;
+    } catch (error) {
+        console.error("Error parsing recipe items for:", recipe.id, error);
+        return [];
+    }
+}
 
 // Helper to lazily load goods object for a RecipeInOut
 function ensureGoodsLoaded(item: RecipeInOut): void {
@@ -408,7 +462,8 @@ function updateChildAmounts(node: TreeNodeData) {
     
     // Find output amount - need to load goods first
     let outputAmount = 1;
-    const outputItems = node.recipe.items.filter(item => item.type === RecipeIoType.ItemOutput || item.type === RecipeIoType.FluidOutput);
+    const recipeItems = getSafeRecipeItems(node.recipe);
+    const outputItems = recipeItems.filter(item => item.type === RecipeIoType.ItemOutput || item.type === RecipeIoType.FluidOutput);
     for (const item of outputItems) {
         ensureGoodsLoaded(item);
         if (item.goods.id === node.goods.id) {
@@ -422,7 +477,7 @@ function updateChildAmounts(node: TreeNodeData) {
     for (const child of node.children) {
         // Find input item - need to load goods first
         let inputItem = null;
-        for (const item of node.recipe.items) {
+        for (const item of recipeItems) {
             ensureGoodsLoaded(item);
             if (item.goods.id === child.goods.id) {
                 inputItem = item;
@@ -436,6 +491,11 @@ function updateChildAmounts(node: TreeNodeData) {
 }
 
 export function SetTreeRoot(goods: Goods, amount: number = 1) {
+    if (!goods || !goods.name) {
+        console.error("Cannot set tree root with invalid goods:", goods);
+        return;
+    }
+    
     treeRoot = {
         iid: nextTreeIid++,
         goods: goods,
@@ -506,28 +566,23 @@ function showOreDictSelection(node: TreeNodeData) {
     const itemsSlice = (node.oreDictSource as any).GetSlice(6);
     if (itemsSlice.length <= 1) return;
     
-    // Show alert listing options
-    let message = `Select variant for ${node.oreDictSource.name}:\n\n`;
-    for (let i = 0; i < itemsSlice.length; i++) {
-        const item = repository.GetObject(itemsSlice[i], Item);
-        message += `${i + 1}. ${item.name}\n`;
-    }
-    message += `\nCurrent: ${node.goods.name}`;
-    
-    const choice = prompt(message + "\n\nEnter number (1-" + itemsSlice.length + "):");
-    if (choice) {
-        const index = parseInt(choice) - 1;
-        if (index >= 0 && index < itemsSlice.length) {
-            const newGoods = repository.GetObject(itemsSlice[index], Item);
-            oreDictMemory.set(node.oreDictSource.id, newGoods.id);
-            // Update this node and rebuild parent
-            node.goods = newGoods;
-            node.recipe = null;
-            node.satisfied = false;
-            node.children = [];
-            scheduleRender();
+    // Use NEI interface to show items from the ore dictionary
+    const callback: ShowNeiCallback = {
+        onSelectGoods: (selectedGoods: Goods) => {
+            if (selectedGoods instanceof Item && selectedGoods.name) {
+                // Store the selection in memory and update the node
+                oreDictMemory.set(node.oreDictSource!.id, selectedGoods.id);
+                node.goods = selectedGoods;
+                node.recipe = null;
+                node.satisfied = false;
+                node.children = [];
+                scheduleRender();
+            }
         }
-    }
+    };
+    
+    // Show NEI with just the ore dictionary items
+    ShowOreDictItems(node.oreDictSource, callback);
 }
 
 function applyRecipeToAllMatchingNodes(goodsId: string, recipe: Recipe) {
@@ -571,8 +626,15 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
     // Build children from recipe inputs first
     node.children = [];
     
+    // Get recipe items safely
+    const recipeItems = getSafeRecipeItems(recipe);
+    if (recipeItems.length === 0) {
+        console.warn("Recipe has no items, cannot build tree:", recipe.id);
+        return;
+    }
+    
     // Calculate output amount - works for both GT and non-GT recipes
-    const outputItems = recipe.items.filter(item => item.type === RecipeIoType.ItemOutput || item.type === RecipeIoType.FluidOutput);
+    const outputItems = recipeItems.filter(item => item.type === RecipeIoType.ItemOutput || item.type === RecipeIoType.FluidOutput);
     let outputAmount = 1;
     for (const item of outputItems) {
         ensureGoodsLoaded(item);
@@ -588,7 +650,7 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
     const inputMap = new Map<string, { goods: Goods, amount: number, oreDictSource?: OreDict }>();
     
     // Add all inputs as children (excluding programmed circuits)
-    for (const item of recipe.items) {
+    for (const item of recipeItems) {
         // For Eye of Harmony recipes, skip all ItemInput (planets)
         if (recipe.recipeType.name === "Eye of Harmony" && item.type === RecipeIoType.ItemInput) {
             continue;
@@ -603,19 +665,22 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
             let goods = item.goods as Goods;
             let oreDictSource: OreDict | undefined = undefined;
             
+            // Skip goods without valid names
+            if (!goods || !goods.name) {
+                continue;
+            }
+            
             // Skip programmed circuits
-            if (goods.name && goods.name.includes("Programmed Circuit")) {
+            if (goods.name.includes("Programmed Circuit")) {
                 continue;
             }
             
             // Skip molds, raw stellar plasma mixture, and planets
-            if (goods.name && (
-                goods.name.includes("Mold") ||
+            if (goods.name.includes("Mold") ||
                 goods.name.includes("Shape") ||
                 goods.name.includes("Raw Stellar Plasma Mixture") ||
                 goods.name.includes("Condensed Raw Stellar Plasma Mixture") ||
-                goods.name.includes("Planet")
-            )) {
+                goods.name.includes("Planet")) {
                 continue;
             }
             
@@ -640,6 +705,11 @@ function setNodeRecipe(node: TreeNodeData, recipe: Recipe) {
                         // Use first item from slice
                         goods = repository.GetObject(itemsSlice[0], Item);
                     }
+                }
+                
+                // Validate the goods from ore dict has a name
+                if (!goods || !goods.name) {
+                    continue;
                 }
             }
             
@@ -700,9 +770,16 @@ function buildNodeChildren(node: TreeNodeData, depth: number = 0) {
     
     const recipe = node.recipe;
     
+    // Get recipe items safely
+    const recipeItems = getSafeRecipeItems(recipe);
+    if (recipeItems.length === 0) {
+        console.warn("Recipe has no items:", recipe.id);
+        return;
+    }
+    
     // Calculate output amount - find the matching output and load its goods
     let outputAmount = 1;
-    const outputItems = recipe.items.filter(item => item.type === RecipeIoType.ItemOutput || item.type === RecipeIoType.FluidOutput);
+    const outputItems = recipeItems.filter(item => item.type === RecipeIoType.ItemOutput || item.type === RecipeIoType.FluidOutput);
     for (const item of outputItems) {
         ensureGoodsLoaded(item);
         if (item.goods.id === node.goods.id) {
@@ -716,7 +793,7 @@ function buildNodeChildren(node: TreeNodeData, depth: number = 0) {
     // Group inputs by goods ID to combine duplicates
     const inputMap = new Map<string, { goods: Goods, amount: number }>();
     
-    for (const item of recipe.items) {
+    for (const item of recipeItems) {
         // For Eye of Harmony recipes, skip all ItemInput (planets)
         if (recipe.recipeType.name === "Eye of Harmony" && item.type === RecipeIoType.ItemInput) {
             continue;
@@ -730,18 +807,21 @@ function buildNodeChildren(node: TreeNodeData, depth: number = 0) {
             ensureGoodsLoaded(item);
             let goods = item.goods as Goods;
             
-            if (goods.name && goods.name.includes("Programmed Circuit")) {
+            // Skip goods without valid names
+            if (!goods || !goods.name) {
+                continue;
+            }
+            
+            if (goods.name.includes("Programmed Circuit")) {
                 continue;
             }
             
             // Skip molds, raw stellar plasma mixture, and planets
-            if (goods.name && (
-                goods.name.includes("Mold") ||
+            if (goods.name.includes("Mold") ||
                 goods.name.includes("Shape") ||
                 goods.name.includes("Raw Stellar Plasma Mixture") ||
                 goods.name.includes("Condensed Raw Stellar Plasma Mixture") ||
-                goods.name.includes("Planet")
-            )) {
+                goods.name.includes("Planet")) {
                 continue;
             }
             
@@ -749,6 +829,11 @@ function buildNodeChildren(node: TreeNodeData, depth: number = 0) {
                 const itemsSlice = (goods as any).GetSlice(6);
                 if (itemsSlice.length > 0) {
                     goods = repository.GetObject(itemsSlice[0], Item);
+                }
+                
+                // Validate the goods from ore dict has a name
+                if (!goods || !goods.name) {
+                    continue;
                 }
             }
             
@@ -873,8 +958,9 @@ function renderNode(node: TreeNodeData, depth: number): string {
                     // Get item count without loading the full items array
                     oreDictItemCount = (child.oreDictSource as any).GetSlice(6).length;
                 }
+                const childName = child.goods.name;
                 const oreDictTitle = child.oreDictSource ? ` (Right-click to change variant from ${oreDictItemCount} options)` : '';
-                html += `<div class="tree-recipe-slot ${oreDictClass}" data-tree-iid="${child.iid}" title="Click to select recipe for ${child.goods.name}${oreDictTitle}">`;
+                html += `<div class="tree-recipe-slot ${oreDictClass}" data-tree-iid="${child.iid}" title="Click to select recipe for ${childName}${oreDictTitle}">`;
                 html += `<item-icon data-id="${child.goods.id}"></item-icon>`;
                 html += `<span class="tree-slot-amount">${formatAmount(child.amount)}</span>`;
                 if (isFullySatisfied(child)) {
@@ -1009,7 +1095,7 @@ function deserializeNode(data: any): TreeNodeData | null {
     if (!data) return null;
     
     const goods = Repository.current.GetById<Goods>(data.goodsId);
-    if (!goods) return null;
+    if (!goods || !goods.name) return null;
     
     const node: TreeNodeData = {
         iid: nextTreeIid++,
